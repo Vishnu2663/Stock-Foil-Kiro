@@ -69,3 +69,24 @@ Reference: docs/BUILD_BRIEF.md §4 Phase 7.
 6. WHEN Carry is pressed THE SYSTEM SHALL open a new card for next month with the net as the carried balance.
 7. THE SYSTEM SHALL show a picture pay slip in the worker's language: suns for days (a half sun for a half day),
    advance coins, the notes to hand over as note pictures, the total, and any disputed days; it SHALL be printable.
+## R6 Live camera capture (fix round, from the webcam recording)
+1. THE SYSTEM SHALL scan a frame every 450 ms at up to 1600 px, one scan at a time, paused while the tab is hidden
+   and for 1800 ms after a capture.
+2. THE SYSTEM SHALL block capture ONLY when, checked in this order: the surface matches the grey discs; fewer than 4
+   corner squares were found; a punch target is not in the photo (ratio not finite); under 2.5 px/mm; paper ≤ 0.15.
+   'partial' (card filling the frame), a hidden cut edge, fingers, background warnings and unsure cells SHALL NOT block.
+3. WHEN the same half reads without a blocker on 2 ticks in a row THE SYSTEM SHALL capture it, vibrate 60 ms and flash
+   "✓ worker/employer half captured" for 1.6 s; WHEN the page has not marked it done after 7 s it MAY capture it again.
+4. THE SYSTEM SHALL show the reason it is or is not capturing in a bar at the bottom of the video, always visible;
+   WHEN Settings → Scanner debug is on it SHALL also show corner squares n/4 (and which were missed), the pose method,
+   px/mm, paper, background/paper and the punched, blank and unsure counts. It SHALL NOT show names or card data.
+5. WHEN no QR decodes but 3 or more corner-square blobs are in view THE SYSTEM SHALL say to move the card closer.
+6. THE SYSTEM SHALL draw the frame outline, the 4 corner markers (green found, orange missed) and every target (green
+   punched, grey blank, amber unsure) over the video, clear them when a scan finds no card, and otherwise fade them
+   out between 2.2 and 3 s after the last scan. The frame border SHALL match the video's displayed size.
+7. THE SYSTEM SHALL offer Capture now at all times, an Auto-capture checkbox and a Light (torch) button when supported.
+8. THE SYSTEM SHALL open the camera once (fallbacks: rear 1920×1080 → rear → any), stop at once on NotAllowedError,
+   and not restart the camera when the language changes.
+9. WHEN the scan worker fails THE SYSTEM SHALL scan on the main thread after 30 ms; WHEN a frame cannot be read it SHALL
+   say "Could not read that frame, trying again…".
+10. THE SYSTEM SHALL pass the saved calibration (punchRatio, alignTolMm) to every scan and pair check.

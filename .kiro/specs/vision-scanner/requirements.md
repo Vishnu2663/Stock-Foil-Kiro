@@ -51,3 +51,22 @@ Reference: docs/BUILD_BRIEF.md §4 Phase 5, §6.5.
 3. WHEN no Worker exists or it cannot start THE SYSTEM SHALL run the same work on the main thread.
 4. WHEN the worker fails THE SYSTEM SHALL reject every pending call and start a new worker next time.
 5. THE SYSTEM SHALL provide punchSets(half, overrides) that applies manual corrections and marks them as manual.
+## Fix round (webcam recording) — these replace the earlier rules where they differ
+1. QR: THE SYSTEM SHALL try jsQR (inversionAttempts "attemptBoth") on raw → blur 1 → blur 2 → unsharp(3, 1.5) → 2×
+   upscale of it → unsharp(3, 3) → 2× upscale of it, stopping at the first hit, on every scan including the camera.
+2. The QR fills its whole 38 mm box: corners (140,14), (178,14), (178,52), (140,52) in the printer and the scanner.
+   Cards printed with the earlier 1-module margin SHALL still scan.
+3. Pose: THE SYSTEM SHALL find corner squares in the whole photo (dark when v < 0.55 × local mean AND v < 0.45;
+   moment rect 0.85–1.2; l1/l2 ≤ 2.2), leave out the QR's own squares, try every 4-subset of the 14 squarest blobs plus
+   the 2 nearest each predicted corner, and accept a fit whose predicted QR corners are within 0.08 × QR side and whose
+   blob areas are 0.5–1.6 × the projected square. Each centre is refined sub-pixel in ±8, ±15, ±26 mm windows. Failing
+   that it SHALL grow outward from the QR (affine below 3 squares, homography after).
+4. Punches: ratio = centre disc (1.6 mm) ÷ median of the cell's paper points; punched when ratio ≤ punchRatio (0.62);
+   unsure when punchRatio × 0.774 < ratio < punchRatio × 1.258. A cell not in the photo is unsure. Disc cards: grey =
+   median of ≥ 3 ratios within 0.17 of 0.62 (else 0.62); hole when |ratio − grey| > 0.15, unsure from 0.55 × 0.15;
+   ambiguous surface when |background/paper − grey| < 0.26 (then every cell unsure). The background is sampled on a
+   row just beyond the cut. There is NO rule that marks every cell unsure because of a light background: instead the
+   warning "Place the halves apart on a dark surface so holes and the cut edge show." is added.
+5. Hole centre: flood fill inside a 6 mm disc below paper × 0.4, date-number box masked, seed within 2.2 mm, area ≥ 4 mm².
+6. Cut edge: x = 4…182 mm, step 0.15–0.35 mm, a crossing counts only when it stays dark 1.2 mm further; skipped when
+   background ≥ 0.72 × paper; warning "Keep fingers off the wavy edge so it can be checked." below 50% coverage.

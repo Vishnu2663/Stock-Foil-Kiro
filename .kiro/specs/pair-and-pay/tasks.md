@@ -28,3 +28,5 @@
   - _Requirements: R3.1–R3.4_
 - [x] 8. Verify and log
   - KIRO_LOG entry for Phase 6, including the "unsure means review" choice
+- [x] Fix round: undefined correlation → inconclusive, design-wave correlation, iterative alignment, verdict order
+  - src/vision/pair.ts; tests/pair.test.ts (property 3 kept: a separately made hole is always flagged)

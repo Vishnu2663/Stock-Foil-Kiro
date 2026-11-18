@@ -29,3 +29,7 @@
   - _Requirements: R3.7, R3.8_
 - [x] 8. Verify and log
   - KIRO_LOG entry listing both bugs
+- [x] Fix round: QR ladder, global corner-square pose, live punch rules, flood-fill hole centre, edge trace, warnings
+  - src/vision/detect.ts, src/core/layout.ts (qrCorners, cellRefPoints), src/core/homography.ts (findAffine),
+    src/render/sheet.ts (QR fills its box, disc grey #9d9d9d), src/render/scene.ts (view, fingers, bend)
+  - tests/cameraScan.test.ts; scanner.test.ts pale surface moved to 0.9 (0.78 is ambiguous with the real disc grey)

@@ -59,12 +59,20 @@ async function call(req: Req): Promise<WorkerResponse> {
 let busy = false;
 export const isBusy = () => busy;
 
+/** Scan on the main thread after 30 ms (used when the worker is missing, crashes or reports an error). */
+async function scanHere(images: RGBAImage[], opts?: ScanOptions): Promise<ScanResult[]> {
+  await new Promise((r) => setTimeout(r, 30));
+  const det = await import('../vision/detect');
+  return images.map((i) => det.scanImage(i, opts));
+}
 export async function scanImages(images: RGBAImage[], opts?: ScanOptions): Promise<ScanResult[]> {
   busy = true;
   try {
-    const r = await call({ kind: 'scan', images, opts });
-    if (!r.ok) throw new Error(r.error);
-    return r.results ?? [];
+    try {
+      const r = await call({ kind: 'scan', images, opts });
+      if (r.ok) return r.results ?? [];
+    } catch { /* worker crashed: fall through */ }
+    return await scanHere(images, opts);
   } finally {
     busy = false;
   }

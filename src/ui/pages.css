@@ -259,3 +259,14 @@ body.lite .flip-tile:hover:not(.flipped) .flip-inner { transform: none; }
 .cam-bar { gap: 10px; align-items: center; }
 @media (max-width: 560px) { .cam-captured { top: 8px; padding: 10px 12px; } .cam-captured b { font-size: 14px; } }
 @media (prefers-reduced-motion: reduce) { .viewfinder .beam, .shutter, .cam-captured { animation: none !important; } }
+
+/* ---------- camera: everything that explains the scan sits on the video itself ---------- */
+.cam-video-box { position: absolute; pointer-events: none; z-index: 2; }
+.cam-video-box .viewfinder { inset: 0; border-radius: 10px; border-width: 4px; }
+.cam-wrap .cam-video-box .cam-status { position: absolute; left: 0; right: 0; bottom: 0; top: auto; display: grid; gap: 3px; padding: 10px 14px; border-radius: 0 0 10px 10px; background: rgba(8, 6, 5, .78); color: #fff; font: 600 14.5px/1.35 var(--sans); text-align: left; justify-content: stretch; }
+.cam-status.warn { box-shadow: inset 0 3px 0 #f6a609; }
+.cam-status.good { box-shadow: inset 0 3px 0 #2fbf71; }
+.cam-debug { font: 500 11.5px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; color: #cfe3ff; word-break: break-word; }
+.cam-flash { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); padding: 10px 16px; border-radius: 12px; background: rgba(18, 64, 38, .92); border: 1px solid #2fbf71; color: #eafbf1; font: 800 15px/1.2 var(--sans); animation: ccIn .35s cubic-bezier(.2, .8, .2, 1) both; }
+.cam-wrap .cam-tools { z-index: 3; }
+@media (max-width: 560px) { .cam-wrap .cam-video-box .cam-status { font-size: 13px; padding: 8px 10px; } }

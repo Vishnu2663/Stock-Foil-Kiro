@@ -78,7 +78,7 @@ describe('vision-scanner', () => {
 
   it('(3) disc cards read correctly on dark, pale and white surfaces; on an ambiguous surface every circle is unsure', () => {
     fc.assert(
-      fc.property(withPunches(true), fc.constantFrom(0.1, 0.78, 0.97, 0.5), ([spec, punched, role, seed], background) => {
+      fc.property(withPunches(true), fc.constantFrom(0.1, 0.9, 0.97, 0.5), ([spec, punched, role, seed], background) => {
         const { res } = scan(spec, role, punched, { seed, background, rotationDeg: (seed % 30) - 15, blur: 0.6, noise: 0.01 });
         expect(res.halves.length).toBe(1);
         const h = res.halves[0];

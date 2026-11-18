@@ -40,7 +40,7 @@ export default function Calibrate() {
           <button className="btn ghost" onClick={() => { setSettings({ calibration: {} }); toast(t('Back to the default settings.'), 'good'); }}>Reset to defaults</button>
         </div>
         <p className="small muted" data-notranslate>
-          {t('Now')}: threshold {f(cur.threshold ?? T.punch, 2)} · tolerance {f(cur.tolerance ?? 1.2, 2)} mm{cur.threshold === undefined && cur.tolerance === undefined ? ' (defaults)' : ''}
+          {t('Now')}: threshold {f(cur.punchRatio ?? T.punch, 2)} · tolerance {f(cur.alignTolMm ?? 1.2, 2)} mm{cur.punchRatio === undefined && cur.alignTolMm === undefined ? ' (defaults)' : ''}
         </p>
       </div>
       {report && (
@@ -58,7 +58,7 @@ export default function Calibrate() {
           {report.notes.map((n) => <div key={n} className="note">{t(n)}</div>)}
           {report.suggestion ? (
             <div className="note good">
-              {t('Suggested')}: <span data-notranslate>threshold {f(report.suggestion.threshold ?? NaN, 3)}{report.suggestion.tolerance !== undefined ? ` · tolerance ${f(report.suggestion.tolerance, 2)} mm` : ''}</span>
+              {t('Suggested')}: <span data-notranslate>threshold {f(report.suggestion.punchRatio ?? NaN, 3)}{report.suggestion.alignTolMm !== undefined ? ` · tolerance ${f(report.suggestion.alignTolMm, 2)} mm` : ''}</span>
             </div>
           ) : <div className="note">{t('No suggestion: not enough data.')}</div>}
           <div className="row">

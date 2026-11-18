@@ -67,3 +67,12 @@ Reference: docs/BUILD_BRIEF.md §4 Phase 6, §6.6.
    any other currency 100/50/20/10/5/1.
 2. THE SYSTEM SHALL make notes plus the remainder equal the amount exactly; an amount of zero or less gives no notes.
 3. WHEN combining a crew THE SYSTEM SHALL add the notes and remainders of each person, so the total is exact.
+## Fix round
+1. Edge match: coverage ≥ 0.4; match when rms ≤ 1.3 mm AND c ≥ 0.8; mismatch when rms > 1.5 mm OR c < 0.75; an
+   undefined correlation (no variance, < 3 points) is inconclusive, never mismatch. Each edge is also correlated with
+   the card's own designed wave.
+2. Alignment: ≥ 4 shared holes; clipped holes are removed first and flagged at ≥ 3 mm; then the worst outlier (the hole
+   whose removal leaves the others fitting best) is removed and the fit redone until every remaining hole is within
+   tolerance (1.2 mm or calibrated alignTolMm).
+3. Verdict order: unreliable, pair-mismatch, genuine-disputed, review (flagged holes), inconclusive, genuine-consistent.
+   Unsure cells alone do not make it "review".

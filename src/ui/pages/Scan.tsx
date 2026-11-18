@@ -70,7 +70,7 @@ export default function Scan() {
     return { fromDay: d, rateMinor: clampAmount(w) };
   }, [wageChange, fromDay, newWage]);
 
-  const result = useMemo(() => (stock && foil ? verifyPair(stock, foil, { tolerance: settings.calibration.tolerance, overrides, rateChange }) : null), [stock, foil, overrides, rateChange, settings.calibration.tolerance]);
+  const result = useMemo(() => (stock && foil ? verifyPair(stock, foil, { alignTolMm: settings.calibration.alignTolMm, overrides, rateChange }) : null), [stock, foil, overrides, rateChange, settings.calibration.alignTolMm]);
   const canSave = !!result && result.verdict !== 'unreliable' && result.verdict !== 'pair-mismatch';
   const spec: CardSpec | null = result?.spec ?? null;
   const paid = useMemo(() => (spec && result?.pay ? paidInfo(loadLedger(), spec.id, result.pay.agreed.net) : null), [spec, result, ledgerVersion]);
@@ -114,8 +114,8 @@ export default function Scan() {
     if (!list.length) return;
     setBusy(true);
     try {
-      const imgs = await Promise.all(list.map((f) => fileToImage(f, 1800)));
-      const res = await scanImages(imgs);
+      const imgs = await Promise.all(list.map((f) => fileToImage(f, 1600)));
+      const res = await scanImages(imgs, { calibration: settings.calibration });
       let found = 0;
       const roles = new Set<string>();
       res.forEach((r, i) => {

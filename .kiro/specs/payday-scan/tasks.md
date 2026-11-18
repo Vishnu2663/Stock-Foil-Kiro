@@ -31,3 +31,8 @@
   - _Requirements: R3.10, R4.3, R5.1–R5.6_
 - [x] 9. Verify and log
   - screenshots of #/scan at 1280px and 375px; KIRO_LOG entry for Phase 7
+- [x] 10. Fix round: live capture from the webcam recording
+  - src/vision/capture.ts (capture rule, summary, debug line); Camera.tsx rewrite; scanAsync main-thread fallback;
+    imageIO (1600 px, EXIF orientation, <img> fallback); Settings → Scanner debug; calibration renamed
+  - tests/cameraScan.test.ts, tests/cameraPhotos.ts
+  - _Requirements: R6.1–R6.10_

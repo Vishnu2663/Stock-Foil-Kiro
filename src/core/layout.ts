@@ -21,7 +21,16 @@ export const FIDUCIALS: [number, number][] = [
 ];
 
 export const QR_BOX = { x: 140, y: 14, size: 38 };
-export const QR_MARGIN_MODULES = 1;
+/** QR symbol corners in frame mm (TL, TR, BR, BL). The symbol fills the whole 38 mm box. */
+export function qrCorners(): [number, number][] {
+  return [[QR_BOX.x, QR_BOX.y], [QR_BOX.x + QR_BOX.size, QR_BOX.y], [QR_BOX.x + QR_BOX.size, QR_BOX.y + QR_BOX.size], [QR_BOX.x, QR_BOX.y + QR_BOX.size]];
+}
+/** Local paper reference points of a cell, clear of the circles, the number and the border. */
+export function cellRefPoints(c: { x: number; y: number; w: number; h: number }): [number, number][] {
+  const dx = c.w / 2 - 1.6;
+  const mx = c.x + c.w / 2;
+  return [[mx - dx, c.y + c.h - 1.6], [mx + dx, c.y + c.h - 1.6], [mx + dx, c.y + 2.2]];
+}
 export const GRID = { x: 14, y: 27, cw: 16, ch: 11, cols: 7, rows: 6 };
 export const ADV = { x: 14, y: 99, w: 11.2, h: 11, n: 10 };
 export const HOLE_R = 3;
@@ -74,11 +83,7 @@ export function targetsFor(spec: Pick<CardSpec, 'year' | 'month' | 'halves'>): T
     const cell = dayCell(spec.year, spec.month, d);
     const cx = cell.x + cell.w / 2;
     const cy = cell.y + cell.h / 2 + PUNCH_DY;
-    const refs: [number, number][] = [
-      [cell.x + cell.w - 1.6, cell.y + 1.4],
-      [cell.x + 1.6, cell.y + cell.h - 1.2],
-      [cell.x + cell.w - 1.6, cell.y + cell.h - 1.2],
-    ];
+    const refs = cellRefPoints(cell);
     if (spec.halves) {
       out.push({ key: `d${d}a`, kind: 'day', n: d, half: 0, cx: cx - HALF_DX, cy, cell, refs });
       out.push({ key: `d${d}b`, kind: 'day', n: d, half: 1, cx: cx + HALF_DX, cy, cell, refs });
@@ -91,11 +96,7 @@ export function targetsFor(spec: Pick<CardSpec, 'year' | 'month' | 'halves'>): T
     out.push({
       key: `a${i}`, kind: 'adv', n: i, half: null,
       cx: cell.x + cell.w / 2, cy: cell.y + cell.h / 2 + PUNCH_DY, cell,
-      refs: [
-        [cell.x + cell.w - 1.3, cell.y + 1.4],
-        [cell.x + 1.3, cell.y + cell.h - 1.2],
-        [cell.x + cell.w - 1.3, cell.y + cell.h - 1.2],
-      ],
+      refs: cellRefPoints(cell),
     });
   }
   targetCache.set(ck, out);

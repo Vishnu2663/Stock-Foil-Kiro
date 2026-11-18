@@ -1,5 +1,6 @@
 // Demo, Story and Test lab scenarios: real scanner on simulated photos.
 import { makeCard, encodePayload, type CardSpec } from '../core/card';
+import type { Calibration } from '../vision/detect';
 import { randomBase32 } from '../core/prng';
 import type { PairInput, PhotoOpts } from '../render/scene';
 import { verifyPair, pickHalves, type PairResult } from '../vision/pair';
@@ -76,10 +77,10 @@ export function scenario(id: ScenarioId, seed = 7): Scenario {
 
 export interface ScenarioRun { sim: SimOutput; stock?: HalfScan; foil?: HalfScan; result: PairResult }
 
-export async function runPair(input: PairInput, tolerance?: number): Promise<ScenarioRun> {
-  const sim = await simulate(input);
+export async function runPair(input: PairInput, calibration: Calibration = {}): Promise<ScenarioRun> {
+  const sim = await simulate(input, { calibration });
   const { stock, foil } = pickHalves(sim.scans.flatMap((s) => s.halves));
-  return { sim, stock, foil, result: verifyPair(stock, foil, { tolerance }) };
+  return { sim, stock, foil, result: verifyPair(stock, foil, { alignTolMm: calibration.alignTolMm }) };
 }
 
 /** A random photo case for the stress test. */

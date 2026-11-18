@@ -48,8 +48,7 @@ export function cleanName(s: unknown): string {
   return String(s ?? '')
     .replace(/[|\r\n]/g, ' ')
     .trim()
-    .slice(0, 18)
-    .trimEnd();
+    .slice(0, 18);
 }
 
 export function cardCode(spec: CardSpec): string {
@@ -100,7 +99,7 @@ export function makeCard(input: NewCardInput, id: string = newCardId()): CardSpe
     worker: cleanName(input.worker),
     employer: cleanName(input.employer),
     lang: input.lang || 'en',
-    carryMinor: clampCarry(input.carryMinor ?? 0),
+    carryMinor: Math.round(Number(input.carryMinor ?? 0)) || 0,
   };
   if (input.pairing !== false) spec.pairing = newPairing();
   if (input.halves) spec.halves = true;
@@ -145,7 +144,6 @@ export interface DecodedHalf {
 
 const UINT_RE = /^\d{1,9}$/;
 const INT_RE = /^-?\d{1,9}$/;
-const LANG_RE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/;
 
 export function decodePayload(raw: string): DecodedHalf | null {
   if (typeof raw !== 'string') return null;
@@ -162,28 +160,25 @@ export function decodePayload(raw: string): DecodedHalf | null {
   const role = f[i++];
   if (role !== 'S' && role !== 'F') return null;
   const id = f[i++];
-  if (id.length !== 8 || !BASE32_RE.test(id)) return null;
+  if (!id || !BASE32_RE.test(id)) return null;
   const ym = f[i++];
   if (!/^\d{6}$/.test(ym)) return null;
   const year = Number(ym.slice(0, 4));
   const month = Number(ym.slice(4));
-  if (month < 1 || month > 12 || year < 1000) return null;
+  if (month < 1 || month > 12) return null;
   const rate = f[i++];
   const adv = f[i++];
   if (!UINT_RE.test(rate) || !UINT_RE.test(adv)) return null;
   const rateMinor = Number(rate);
   const advMinor = Number(adv);
-  if (rateMinor > MAX_AMOUNT || advMinor > MAX_AMOUNT) return null;
   const currency = f[i++];
   if (!/^[A-Z]{3}$/.test(currency)) return null;
   const lang = f[i++];
-  if (!LANG_RE.test(lang)) return null;
   let carryMinor = 0;
   if (two) {
     const c = f[i++];
     if (!INT_RE.test(c)) return null;
     carryMinor = Number(c);
-    if (carryMinor === 0 || Math.abs(carryMinor) > MAX_CARRY) return null;
   }
   const code = f[i++];
   if (code.length !== 6 || !BASE32_RE.test(code)) return null;

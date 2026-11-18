@@ -3,49 +3,74 @@ import { cardCode, type CardSpec } from '../core/card';
 import { verifyPairing, type PairingStatus } from '../core/pairing';
 import { targetsFor } from '../core/layout';
 import { compareSets, threeViews, type Comparison, type PayTerms, type RateChange, type ThreeViews } from '../core/wages';
-import { punchSets, type HalfScan } from './detect';
+import { punchSets, EDGE_XS, type HalfScan } from './detect';
+import { makeWave } from '../core/wave';
 import type { Verdict } from '../core/history';
 
 // ---------------- edge match ----------------
 
 export type EdgeStatus = 'match' | 'mismatch' | 'inconclusive';
-export interface EdgeMatch { status: EdgeStatus; coverage: number; rms: number; c: number; score: number; n: number }
+export interface EdgeMatch {
+  status: EdgeStatus;
+  coverage: number;
+  rms: number; // spread of the stock − foil gap, mm
+  c: number; // shape correlation of the two edges; NaN when undefined
+  score: number;
+  n: number;
+  /** each edge against the card's own designed wave (NaN when undefined) */
+  cDesignStock: number;
+  cDesignFoil: number;
+}
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
-export function edgeMatch(stock: number[], foil: number[]): EdgeMatch {
-  const total = Math.min(stock.length, foil.length);
-  const a: number[] = [];
-  const b: number[] = [];
-  for (let i = 0; i < total; i++) if (Number.isFinite(stock[i]) && Number.isFinite(foil[i])) { a.push(stock[i]); b.push(foil[i]); }
+/** Pearson correlation; NaN with fewer than 3 points or when either side has no variance. */
+export function corr(a: number[], b: number[]): number {
   const n = a.length;
-  const coverage = total ? n / total : 0;
-  if (n < 3) return { status: 'inconclusive', coverage, rms: NaN, c: NaN, score: 0, n };
+  if (n < 3) return NaN;
   const ma = a.reduce((s, v) => s + v, 0) / n;
   const mb = b.reduce((s, v) => s + v, 0) / n;
-  let sab = 0, saa = 0, sbb = 0, sd = 0, sdd = 0;
-  for (let i = 0; i < n; i++) {
-    const da = a[i] - ma, db = b[i] - mb;
-    sab += da * db; saa += da * da; sbb += db * db;
-    const d = a[i] - b[i];
-    sd += d; sdd += d * d;
+  let num = 0, da = 0, db = 0;
+  for (let i = 0; i < n; i++) { num += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; }
+  return da > 1e-9 && db > 1e-9 ? num / Math.sqrt(da * db) : NaN;
+}
+
+/**
+ * Do the two photographed cut edges fit? Needs coverage ≥ 0.4. Match when rms ≤ 1.3 mm AND c ≥ 0.8;
+ * mismatch when rms > 1.5 mm OR c < 0.75; otherwise (or when c is undefined) inconclusive.
+ */
+export function edgeMatch(stock: number[], foil: number[], waveId?: string): EdgeMatch {
+  const total = Math.min(stock.length, foil.length);
+  const a: number[] = [], b: number[] = [];
+  const wave = waveId ? makeWave(waveId) : null;
+  const sAll: number[] = [], dS: number[] = [], fAll: number[] = [], dF: number[] = [];
+  for (let i = 0; i < total; i++) {
+    const x = EDGE_XS[i];
+    if (wave && Number.isFinite(stock[i])) { sAll.push(stock[i]); dS.push(wave.at(x)); }
+    if (wave && Number.isFinite(foil[i])) { fAll.push(foil[i]); dF.push(wave.at(x)); }
+    if (Number.isFinite(stock[i]) && Number.isFinite(foil[i])) { a.push(stock[i]); b.push(foil[i]); }
   }
-  const md = sd / n;
-  const rms = Math.sqrt(Math.max(0, sdd / n - md * md));
-  const c = saa > 0 && sbb > 0 ? sab / Math.sqrt(saa * sbb) : 0;
-  const score = clamp01((c - 0.3) / 0.65) * clamp01((2.5 - rms) / 2) * 100;
+  const n = a.length;
+  const coverage = total ? n / total : 0;
+  const cDesignStock = corr(sAll, dS), cDesignFoil = corr(fAll, dF);
+  if (n < 3) return { status: 'inconclusive', coverage, rms: NaN, c: NaN, score: 0, n, cDesignStock, cDesignFoil };
+  const d = a.map((v, i) => v - b[i]);
+  const md = d.reduce((s, v) => s + v, 0) / n;
+  const rms = Math.sqrt(d.reduce((s, v) => s + (v - md) ** 2, 0) / n);
+  const c = corr(a, b);
   let status: EdgeStatus = 'inconclusive';
-  if (coverage >= 0.4) {
+  if (coverage >= 0.4 && Number.isFinite(c)) {
     if (rms <= 1.3 && c >= 0.8) status = 'match';
     else if (rms > 1.5 || c < 0.75) status = 'mismatch';
   }
-  return { status, coverage, rms, c, score, n };
+  const score = Number.isFinite(c) ? clamp01((c - 0.3) / 0.65) * clamp01((2.5 - rms) / 2) * 100 : 0;
+  return { status, coverage, rms, c, score, n, cDesignStock, cDesignFoil };
 }
 
 // ---------------- alignment (holes punched together) ----------------
 
-export interface AlignHole { key: string; s: [number, number]; f: [number, number] }
-export interface Alignment { checked: boolean; shared: number; flagged: string[]; residuals: Record<string, number>; tolerance: number }
+export interface AlignHole { key: string; s: [number, number]; f: [number, number]; clipped?: boolean }
+export interface Alignment { checked: boolean; shared: number; flagged: string[]; residuals: Record<string, number>; tolerance: number; maxResidual: number }
 
 /** Least-squares rigid transform (rotation + shift) mapping pts p onto q. */
 export function fitRigid(p: [number, number][], q: [number, number][]): { a: number; tx: number; ty: number } {
@@ -64,22 +89,53 @@ export function fitRigid(p: [number, number][], q: [number, number][]): { a: num
   return { a, tx: qx - (c * px - s * py), ty: qy - (s * px + c * py) };
 }
 
+const mapRigid = (t: { a: number; tx: number; ty: number }, [x, y]: [number, number]): [number, number] =>
+  [Math.cos(t.a) * x - Math.sin(t.a) * y + t.tx, Math.sin(t.a) * x + Math.cos(t.a) * y + t.ty];
+
+/** Residual of hole h against a rigid fit made from the other holes of `set` (foil → stock). */
+function leaveOneOut(set: AlignHole[], h: AlignHole): number {
+  const rest = set.filter((x) => x !== h);
+  const t = fitRigid(rest.map((x) => x.f), rest.map((x) => x.s));
+  const [mx, my] = mapRigid(t, h.f);
+  return Math.hypot(mx - h.s[0], my - h.s[1]);
+}
+
+/**
+ * "Punched together": needs ≥ 4 shared holes. Clipped holes (far from their target) are taken out first and
+ * flagged with a residual of at least 3 mm. Then the worst outlier is removed and the fit redone, again and
+ * again, until every remaining hole is within tolerance. Every removed hole is judged against the final fit.
+ */
 export function alignment(holes: AlignHole[], tolerance = 1.2): Alignment {
   const shared = holes.length;
-  if (shared < 4) return { checked: false, shared, flagged: [], residuals: {}, tolerance };
-  const flagged: string[] = [];
-  const residuals: Record<string, number> = {};
-  for (let i = 0; i < shared; i++) {
-    const others = holes.filter((_, j) => j !== i);
-    const t = fitRigid(others.map((h) => h.f), others.map((h) => h.s));
-    const [fx, fy] = holes[i].f;
-    const c = Math.cos(t.a), s = Math.sin(t.a);
-    const mx = c * fx - s * fy + t.tx, my = s * fx + c * fy + t.ty;
-    const r = Math.hypot(mx - holes[i].s[0], my - holes[i].s[1]);
-    residuals[holes[i].key] = r;
-    if (r > tolerance) flagged.push(holes[i].key);
+  if (shared < 4) return { checked: false, shared, flagged: [], residuals: {}, tolerance, maxResidual: 0 };
+  let act = holes.filter((h) => !h.clipped);
+  const removed = holes.filter((h) => h.clipped);
+  while (act.length >= 4) {
+    const worstRes = Math.max(...act.map((h) => leaveOneOut(act, h)));
+    if (worstRes <= tolerance) break;
+    // The worst outlier is the hole whose removal leaves the others fitting best. (Taking the largest
+    // leave-one-out residual instead can pick an honest hole with high leverage and pass a forged one.)
+    let worst = act[0], bestRest = Infinity, bestOwn = -1;
+    for (const h of act) {
+      const rest = act.filter((x) => x !== h);
+      const restMax = Math.max(...rest.map((x) => leaveOneOut(rest, x)));
+      const own = leaveOneOut(act, h);
+      if (restMax < bestRest - 1e-9 || (Math.abs(restMax - bestRest) <= 1e-9 && own > bestOwn)) { bestRest = restMax; bestOwn = own; worst = h; }
+    }
+    removed.push(worst);
+    act = act.filter((h) => h !== worst);
   }
-  return { checked: true, shared, flagged, residuals, tolerance };
+  const residuals: Record<string, number> = {};
+  const fit = act.length >= 3 ? fitRigid(act.map((h) => h.f), act.map((h) => h.s)) : null;
+  for (const h of act) residuals[h.key] = act.length >= 4 ? leaveOneOut(act, h) : 0;
+  const flagged: string[] = [];
+  for (const h of removed) {
+    const [mx, my] = fit ? mapRigid(fit, h.f) : h.f;
+    residuals[h.key] = Math.max(Math.hypot(mx - h.s[0], my - h.s[1]), h.clipped ? 3 : 0);
+    flagged.push(h.key);
+  }
+  const maxResidual = act.length >= 4 ? Math.max(...act.map((h) => residuals[h.key])) : 0;
+  return { checked: true, shared, flagged, residuals, tolerance, maxResidual };
 }
 
 export function holesFromScans(stock: HalfScan, foil: HalfScan): AlignHole[] {
@@ -89,8 +145,8 @@ export function holesFromScans(stock: HalfScan, foil: HalfScan): AlignHole[] {
   for (const c of stock.cells) {
     const d = fc.get(c.key);
     const t = ts.get(c.key);
-    if (!t || !d || !c.hole || !d.hole || c.hole.clipped || d.hole.clipped || c.unsure || d.unsure) continue;
-    out.push({ key: c.key, s: [t.cx + c.hole.dx, t.cy + c.hole.dy], f: [t.cx + d.hole.dx, t.cy + d.hole.dy] });
+    if (!t || !d || !c.punched || !d.punched || !c.hole || !d.hole) continue;
+    out.push({ key: c.key, s: [t.cx + c.hole.dx, t.cy + c.hole.dy], f: [t.cx + d.hole.dx, t.cy + d.hole.dy], clipped: c.hole.clipped || d.hole.clipped });
   }
   return out;
 }
@@ -100,7 +156,8 @@ export function holesFromScans(stock: HalfScan, foil: HalfScan): AlignHole[] {
 export interface Check { id: string; label: string; ok: boolean | null; detail: string }
 
 export interface PairOptions {
-  tolerance?: number;
+  /** punched-together tolerance in mm (calibrated alignTolMm), default 1.2 */
+  alignTolMm?: number;
   overrides?: { S?: Record<string, boolean>; F?: Record<string, boolean> };
   rateChange?: RateChange;
 }
@@ -162,7 +219,7 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
     detail: pairing === 'verified' ? 'Verified: issued together' : pairing === 'failed' ? 'Failed: these halves were not issued together' : pairing === 'legacy' ? 'No pairing code: the cut decides' : '',
   });
   const discsPaired = both && !!stock!.decoded.spec.discs && pairing === 'verified';
-  const edge = both ? edgeMatch(stock!.edge, foil!.edge) : null;
+  const edge = both ? edgeMatch(stock!.edge, foil!.edge, stock!.decoded.spec.id) : null;
   let edgeOk: boolean | null = null;
   let edgeDetail = '';
   if (edge) {
@@ -190,7 +247,7 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
       carryMinor: stock!.decoded.spec.carryMinor, halves: stock!.decoded.spec.halves, rateChange: opts.rateChange,
     };
     pay = threeViews(comparison, terms);
-    align = alignment(holesFromScans(stock!, foil!), opts.tolerance ?? 1.2);
+    align = alignment(holesFromScans(stock!, foil!), opts.alignTolMm ?? 1.2);
   }
   const oneSided = comparison ? comparison.stockOnly.size + comparison.foilOnly.size : 0;
   checks.push({
@@ -211,7 +268,7 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
   if (!poseOk && pairOk) verdict = 'unreliable';
   else if (!pairOk) verdict = 'pair-mismatch';
   else if (!comparison!.consistent) verdict = 'genuine-disputed';
-  else if (align!.flagged.length > 0 || comparison!.unsureCount > 0) verdict = 'review';
+  else if (align!.flagged.length > 0) verdict = 'review';
   else if (edge!.status === 'inconclusive' && pairing === 'legacy') verdict = 'inconclusive';
   else verdict = 'genuine-consistent';
   return { verdict, checks, pairing, edge, align, comparison, pay, spec, poseOk, pairOk, minFiducials };

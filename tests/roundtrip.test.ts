@@ -51,8 +51,8 @@ describe('calibrate', () => {
         const s = suggestCalibration(p, b, []);
         if (!p.length || !b.length) { expect(s).toBeNull(); return; }
         const med = (v: number[]) => { const x = [...v].sort((m, n) => m - n); const k = x.length >> 1; return x.length % 2 ? x[k] : (x[k - 1] + x[k]) / 2; };
-        expect(s!.threshold!).toBeGreaterThan(med(p) - 1e-3);
-        expect(s!.threshold!).toBeLessThan(med(b) + 1e-3);
+        expect(s!.punchRatio!).toBeGreaterThan(med(p) - 1e-3);
+        expect(s!.punchRatio!).toBeLessThan(med(b) + 1e-3);
       }),
       runs(200),
     );

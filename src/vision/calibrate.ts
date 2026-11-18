@@ -3,7 +3,7 @@ import { median } from './image';
 import { holesFromScans, alignment } from './pair';
 import type { HalfScan } from './detect';
 
-export interface CalibrationSuggestion { threshold?: number; tolerance?: number }
+export interface CalibrationSuggestion { punchRatio?: number; alignTolMm?: number }
 
 export interface CalibrationReport {
   halves: number;
@@ -23,11 +23,11 @@ export function suggestCalibration(punched: number[], blank: number[], residuals
   const p = median(punched);
   const b = median(blank);
   if (!Number.isFinite(p) || !Number.isFinite(b) || p >= b) return null;
-  const out: CalibrationSuggestion = { threshold: Math.round(((p + b) / 2) * 1000) / 1000 };
+  const out: CalibrationSuggestion = { punchRatio: Math.round(((p + b) / 2) * 1000) / 1000 };
   const r = residuals.filter(Number.isFinite).sort((x, y) => x - y);
   if (r.length >= 4) {
     const p95 = r[Math.min(r.length - 1, Math.floor(r.length * 0.95))];
-    out.tolerance = Math.round(Math.max(0.8, Math.min(2.5, p95 * 1.5 + 0.3)) * 100) / 100;
+    out.alignTolMm = Math.round(Math.max(0.8, Math.min(2.5, p95 * 1.5 + 0.3)) * 100) / 100;
   }
   return out;
 }

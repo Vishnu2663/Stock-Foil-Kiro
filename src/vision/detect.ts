@@ -1,41 +1,49 @@
-// Scanner pipeline per photo (§6.5): QR search, pose, punch reading, edge trace, warnings. Pure, no DOM.
+// Scanner pipeline per photo: QR search, pose from the four corner squares, punch reading, cut edge, warnings.
+// Pure, no DOM: the same code runs in the Web Worker, on the main thread and in Node tests.
+// Luminance is 0..255 here; ratios and the 0..1 limits below are converted where they are used.
 import jsQR from 'jsqr';
 import { decodePayload, looksLikeOurs, type DecodedHalf, type CardSpec, type Role } from '../core/card';
-import { applyH, invertH, solveHomography, localScale, type Hom, type Pt } from '../core/homography';
+import { applyH, findAffine, solveHomography, localScale, type Hom, type Pt } from '../core/homography';
 import {
-  FIDUCIALS, QR_BOX, SAMPLE_R, targetsFor, PIECE_X0, PIECE_X1, STOCK_TOP, FOIL_BOTTOM, FRAME_W, FRAME_H,
+  FIDUCIALS, FID_SIZE, SAMPLE_R, targetsFor, PIECE_X0, PIECE_X1, STOCK_TOP, FOIL_BOTTOM, FRAME_W, FRAME_H, qrCorners,
 } from '../core/layout';
-import { qrGeometry } from '../render/sheet';
-import {
-  toGray, grayToRGBA, sample, median3, unsharp, upscale2, median, integral, boxMean, type Gray, type RGBAImage,
-} from './image';
+import { toGray, grayToRGBA, sample, boxBlur, unsharp, upscale2, median, type Gray, type RGBAImage } from './image';
 
-// ---------------- thresholds (§6.5.3) ----------------
+// ---------------- thresholds ----------------
 export const T = {
-  punch: 0.62,
-  unsureLo: 0.48,
-  unsureHi: 0.78,
-  discNominal: 0.62,
-  discWindow: 0.17,
-  discHole: 0.15,
-  discUnsure: 0.0825,
-  ambiguous: 0.26,
+  punch: 0.62, // punched when centre / local paper <= this
+  unsureLoK: 0.774, // unsure band = punch × [0.774, 1.258] (0.48–0.78 at the default)
+  unsureHiK: 1.258,
+  discNominal: 0.62, // printed grey disc relative to paper
+  discWindow: 0.17, // ratios this close to 0.62 are used to measure the grey
+  discHole: 0.15, // a disc this far from the grey is a hole
+  discUnsureK: 0.55, // unsure when between 0.55 × 0.15 and 0.15 from the grey
+  ambiguous: 0.26, // surface this close to the grey: holes cannot be told from discs
+  contrast: 0.72, // background darker than 0.72 × paper: cut edge and holes are visible
+  darkPhoto: 0.15, // paper at or below 0.15 (0..1): too dark
 };
+/** The unsure band for a punch threshold, scaled (not shifted) like the live scanner. */
+export const unsureBand = (punchRatio = T.punch): [number, number] => [punchRatio * T.unsureLoK, punchRatio * T.unsureHiK];
 
 export type WarningCode =
-  | 'partial' | 'few-fiducials' | 'low-contrast' | 'dark-surface' | 'ambiguous-surface'
-  | 'far' | 'blurry' | 'dark-photo';
+  | 'partial' | 'spots-hidden' | 'few-fiducials' | 'low-contrast' | 'dark-surface' | 'edge-surface' | 'ambiguous-surface'
+  | 'far' | 'blurry' | 'dark-photo' | 'edge-hidden';
 
 export const WARNING_TEXT: Record<WarningCode, string> = {
   partial: 'Part of the half is outside the photo. Show the whole half.',
-  'few-fiducials': 'Fewer than 3 corner squares found. Show all four corners.',
+  'spots-hidden': 'Some punch spots are outside the photo or cut off. Retake with the whole half in view.',
+  'few-fiducials': 'Not all four corner squares were found. Keep the whole half in the photo.',
   'low-contrast': 'Low contrast. Use more light.',
-  'dark-surface': 'Place the card on a dark plain surface.',
-  'ambiguous-surface': 'The surface is too close to the grey discs. Use a dark or white surface.',
+  'dark-surface': 'Place the halves apart on a dark surface so holes and the cut edge show.',
+  'edge-surface': 'The cut edge is hard to see on this surface. Put the halves apart on a plain, contrasting surface.',
+  'ambiguous-surface': 'This surface is about the same shade as the grey discs, so holes are hard to tell from discs. Put the card on a clearly darker or lighter surface.',
   far: 'The card is too far away. Move closer.',
   blurry: 'The photo is blurred or bent. Hold still and keep the card flat.',
   'dark-photo': 'The photo is too dark. Use more light.',
+  'edge-hidden': 'Keep fingers off the wavy edge so it can be checked.',
 };
+
+// ---------------- QR ----------------
 
 export interface QRHit { data: string; corners: Pt[]; version: number; level: number }
 
@@ -71,7 +79,7 @@ function runJsQR(g: Gray, scale: number, maxHits: number, level: number): QRHit[
   const rgba = grayToRGBA(g);
   const hits: QRHit[] = [];
   for (let k = 0; k < maxHits; k++) {
-    const r = jsQR(rgba, g.width, g.height, { inversionAttempts: 'dontInvert' });
+    const r = jsQR(rgba, g.width, g.height, { inversionAttempts: 'attemptBoth' });
     if (!r || !r.data) break;
     const L = r.location;
     const quad: Pt[] = [L.topLeftCorner, L.topRightCorner, L.bottomRightCorner, L.bottomLeftCorner].map((p) => [p.x, p.y]);
@@ -81,168 +89,332 @@ function runJsQR(g: Gray, scale: number, maxHits: number, level: number): QRHit[
   return hits;
 }
 
-/** jsQR repeated with masking (up to 2 hits); escalate denoise → unsharp → 2× upscale only when needed. */
-export function findQRs(g: Gray, maxHits = 2, maxLevel = 3): QRHit[] {
-  let hits = runJsQR(g, 1, maxHits, 0);
-  if (hits.length || maxLevel < 1) return hits;
-  const d = median3(g);
-  hits = runJsQR(d, 1, maxHits, 1);
-  if (hits.length || maxLevel < 2) return hits;
-  const u = unsharp(d);
-  hits = runJsQR(u, 1, maxHits, 2);
-  if (hits.length || maxLevel < 3) return hits;
-  return runJsQR(upscale2(u), 2, maxHits, 3);
+/**
+ * The QR ladder, cheapest first, stopping at the first variant that decodes:
+ * raw → blur 1 → blur 2 → unsharp(3, 1.5) → 2× upscale of it → unsharp(3, 3) → 2× upscale of it.
+ * Corner coordinates are always in the original photo.
+ */
+export const QR_LADDER = 7;
+export function findQRs(g: Gray, maxHits = 2, maxLevel = QR_LADDER - 1): QRHit[] {
+  let b1: Gray | undefined, u15: Gray | undefined, u3: Gray | undefined;
+  const blur1 = () => (b1 ??= boxBlur(g, 1));
+  const steps: [() => Gray, number][] = [
+    [() => g, 1],
+    [blur1, 1],
+    [() => boxBlur(g, 2), 1],
+    [() => (u15 ??= unsharp(blur1(), 1.5, 3)), 1],
+    [() => upscale2(u15 ??= unsharp(blur1(), 1.5, 3)), 2],
+    [() => (u3 ??= unsharp(blur1(), 3, 3)), 1],
+    [() => upscale2(u3 ??= unsharp(blur1(), 3, 3)), 2],
+  ];
+  for (let level = 0; level <= Math.min(maxLevel, steps.length - 1); level++) {
+    const [make, scale] = steps[level];
+    const hits = runJsQR(make(), scale, maxHits, level);
+    if (hits.length) return hits;
+  }
+  return [];
 }
 
-// ---------------- pose ----------------
+// ---------------- pose: the four corner squares ----------------
 
 export interface Pose {
   H: Hom;
-  fiducials: (Pt | null)[];
+  fiducials: (Pt | null)[]; // image px, in FIDUCIALS order (TL, TR, BL, BR)
   fiducialsFound: number;
-  fitError: number;
+  fitError: number; // mean reprojection error of the found squares, px
   pxPerMm: number;
+  method: 'global' | 'grow' | 'qr';
 }
 
-interface Blob { x: number; y: number; area: number; mm: Pt }
+export interface SquareBlob { x: number; y: number; area: number; q: number }
 
-function darkBlobs(g: Gray, ppm: number): Blob[] {
-  const { width: w, height: h } = g;
-  const I = integral(g);
-  const R = Math.max(6, Math.round(8 * ppm));
-  const mask = new Uint8Array(w * h);
-  // Coarse local mean on a grid for speed.
-  const step = Math.max(2, Math.round(R / 4));
-  const gw = Math.ceil(w / step) + 1, gh = Math.ceil(h / step) + 1;
-  const lm = new Float32Array(gw * gh);
-  for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
-    const x = i * step, y = j * step;
-    lm[j * gw + i] = boxMean(I, w, h, x - R, y - R, x + R, y + R);
-  }
+/**
+ * Every solid, square-ish dark blob in the whole photo. A pixel is dark when it is below 0.55 × its local
+ * mean AND below 0.45 (of full scale). Moment tests keep filled squares and drop rings, text and lines:
+ * a filled rectangle has area = 12·√det(cov) (ratio 0.85–1.2), and its axes are similar (l1/l2 ≤ 2.2).
+ */
+export function detectSquares(g: Gray, maxKeep = 14): SquareBlob[] {
+  const { width: w, height: h, data } = g;
+  const W1 = w + 1;
+  const I = new Float64Array(W1 * (h + 1));
   for (let y = 0; y < h; y++) {
-    const j = Math.min(gh - 1, Math.round(y / step));
+    let row = 0;
     for (let x = 0; x < w; x++) {
-      const m = lm[j * gw + Math.min(gw - 1, Math.round(x / step))];
-      if (g.data[y * w + x] < 0.55 * m && g.data[y * w + x] < 140) mask[y * w + x] = 1;
+      row += data[y * w + x];
+      I[(y + 1) * W1 + x + 1] = I[y * W1 + x + 1] + row;
     }
   }
-  const minA = 0.2 * 49 * ppm * ppm;
-  const maxA = 4 * 49 * ppm * ppm;
-  const blobs: Blob[] = [];
+  const R = Math.max(24, Math.round(0.05 * Math.max(w, h)));
+  const mask = new Uint8Array(w * h);
+  const abs = 0.45 * 255;
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - R), y1 = Math.min(h, y + R + 1);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - R), x1 = Math.min(w, x + R + 1);
+      const mean = (I[y1 * W1 + x1] - I[y0 * W1 + x1] - I[y1 * W1 + x0] + I[y0 * W1 + x0]) / ((x1 - x0) * (y1 - y0));
+      const v = data[y * w + x];
+      if (v < mean * 0.55 && v < abs) mask[y * w + x] = 1;
+    }
+  }
+  const minA = Math.max(40, 0.00002 * w * h);
+  const maxA = 0.012 * w * h;
   const stack = new Int32Array(w * h);
-  for (let start = 0; start < w * h; start++) {
+  const out: SquareBlob[] = [];
+  for (let start = 0; start < mask.length; start++) {
     if (mask[start] !== 1) continue;
     let sp = 0;
     stack[sp++] = start;
     mask[start] = 2;
-    let area = 0, sx = 0, sy = 0, minx = w, maxx = 0, miny = h, maxy = 0, border = false;
-    while (sp > 0) {
-      const p = stack[--sp];
-      const x = p % w, y = (p - x) / w;
-      area++; sx += x + 0.5; sy += y + 0.5;
-      if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y;
-      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) border = true;
-      if (x > 0 && mask[p - 1] === 1) { mask[p - 1] = 2; stack[sp++] = p - 1; }
-      if (x < w - 1 && mask[p + 1] === 1) { mask[p + 1] = 2; stack[sp++] = p + 1; }
-      if (y > 0 && mask[p - w] === 1) { mask[p - w] = 2; stack[sp++] = p - w; }
-      if (y < h - 1 && mask[p + w] === 1) { mask[p + w] = 2; stack[sp++] = p + w; }
+    let n = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+    let x0 = w, x1 = 0, y0 = h, y1 = 0;
+    while (sp) {
+      const k = stack[--sp];
+      const x = k % w, y = (k - x) / w;
+      n++; sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (x + 1 < w && mask[k + 1] === 1) { mask[k + 1] = 2; stack[sp++] = k + 1; }
+      if (x > 0 && mask[k - 1] === 1) { mask[k - 1] = 2; stack[sp++] = k - 1; }
+      if (y + 1 < h && mask[k + w] === 1) { mask[k + w] = 2; stack[sp++] = k + w; }
+      if (y > 0 && mask[k - w] === 1) { mask[k - w] = 2; stack[sp++] = k - w; }
     }
-    if (border || area < minA || area > maxA) continue;
-    const bw = maxx - minx + 1, bh = maxy - miny + 1;
-    if (Math.max(bw, bh) / Math.min(bw, bh) > 2.4) continue;
-    if (area / (bw * bh) < 0.42) continue;
-    blobs.push({ x: sx / area, y: sy / area, area, mm: [0, 0] });
+    if (n < minA || n > maxA) continue;
+    if (x0 === 0 || y0 === 0 || x1 === w - 1 || y1 === h - 1) continue;
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+    const mx = sx / n, my = sy / n;
+    const cxx = sxx / n - mx * mx + 1 / 12, cyy = syy / n - my * my + 1 / 12, cxy = sxy / n - mx * my;
+    const det = cxx * cyy - cxy * cxy;
+    if (det <= 0) continue;
+    const tr = cxx + cyy;
+    const disc = Math.sqrt(Math.max(0, (tr * tr) / 4 - det));
+    const l1 = tr / 2 + disc, l2 = tr / 2 - disc;
+    if (l2 <= 0 || l1 / l2 > 2.2) continue;
+    const rect = n / (12 * Math.sqrt(det));
+    if (rect < 0.85 || rect > 1.2) continue;
+    if (Math.max(bw, bh) > 3.2 * Math.min(bw, bh)) continue;
+    out.push({ x: mx + 0.5, y: my + 0.5, area: n, q: Math.abs(rect - 1) + Math.abs(Math.log(l1 / l2)) * 0.3 });
   }
-  return blobs;
+  out.sort((a, b) => a.q - b.q);
+  return out.slice(0, maxKeep);
 }
 
+function polyArea(p: Pt[]): number {
+  let a = 0;
+  for (let i = 0; i < p.length; i++) {
+    const q = p[(i + 1) % p.length];
+    a += p[i][0] * q[1] - q[0] * p[i][1];
+  }
+  return Math.abs(a) / 2;
+}
+
+/** Clockwise order of the corner squares (TL, TR, BR, BL) as indices into FIDUCIALS (TL, TR, BL, BR). */
+const CW = [0, 1, 3, 2];
+
+/**
+ * Pick the four blobs that are the card's corner squares: for every convex 4-subset and each rotation, fit a
+ * homography from the corner centres alone and keep it only when it predicts the decoded QR corners within
+ * 0.08 × the QR side and every blob's area within 0.5–1.6 of the square's projected area. Lowest QR error wins.
+ */
+export function globalPose(g: Gray, qrImg: Pt[], cand = detectSquares(g)): { H: Hom; img: Pt[] } | null {
+  if (cand.length < 4) return null;
+  const card = CW.map((i) => FIDUCIALS[i]);
+  const qc = qrCorners();
+  const qrSide = Math.hypot(qrImg[1][0] - qrImg[0][0], qrImg[1][1] - qrImg[0][1]);
+  const half = FID_SIZE / 2;
+  let best: { err: number; H: Hom; img: Pt[] } | null = null;
+  const n = cand.length;
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) for (let d = c + 1; d < n; d++) {
+    const sub = [cand[a], cand[b], cand[c], cand[d]];
+    const mx = sub.reduce((s, p) => s + p.x, 0) / 4, my = sub.reduce((s, p) => s + p.y, 0) / 4;
+    const q = [...sub].sort((p1, p2) => Math.atan2(p1.y - my, p1.x - mx) - Math.atan2(p2.y - my, p2.x - mx));
+    const qp = q.map((p) => [p.x, p.y] as Pt);
+    if (polyArea(qp) < 0.04 * qrSide * qrSide) continue;
+    let convex = true;
+    for (let i = 0; i < 4 && convex; i++) {
+      const p0 = qp[i], p1 = qp[(i + 1) % 4], p2 = qp[(i + 2) % 4];
+      if ((p1[0] - p0[0]) * (p2[1] - p1[1]) - (p1[1] - p0[1]) * (p2[0] - p1[0]) <= 0) convex = false;
+    }
+    if (!convex) continue;
+    for (let r = 0; r < 4; r++) {
+      const img = [0, 1, 2, 3].map((i) => q[(i + r) % 4]);
+      const H = solveHomography(card, img.map((p) => [p.x, p.y] as Pt));
+      if (!H) continue;
+      let err = 0;
+      for (let i = 0; i < 4; i++) {
+        const p = applyH(H, qc[i][0], qc[i][1]);
+        err += Math.hypot(p[0] - qrImg[i][0], p[1] - qrImg[i][1]);
+      }
+      err /= 4 * qrSide;
+      if (err > 0.08 || (best && err >= best.err)) continue;
+      let areaOk = true;
+      for (let i = 0; i < 4 && areaOk; i++) {
+        const [cx, cy] = card[i];
+        const poly = ([[cx - half, cy - half], [cx + half, cy - half], [cx + half, cy + half], [cx - half, cy + half]] as Pt[]).map(([x, y]) => applyH(H, x, y));
+        const ratio = img[i].area / polyArea(poly);
+        if (ratio < 0.5 || ratio > 1.6) areaOk = false;
+      }
+      if (!areaOk) continue;
+      best = { err, H, img: img.map((p) => [p.x, p.y] as Pt) };
+    }
+  }
+  return best;
+}
+
+function insideQuad(q: Pt[], x: number, y: number): boolean {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const [ax, ay] = q[i], [bx, by] = q[(i + 1) % 4];
+    const c = (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+    if (c !== 0) { if (sign === 0) sign = Math.sign(c); else if (Math.sign(c) !== sign) return false; }
+  }
+  return true;
+}
+
+/**
+ * Candidates for the global search: the QR's own inner squares are left out; then the 14 most square blobs,
+ * plus the 2 blobs nearest each corner square's QR-predicted position, so many punched holes (round blobs
+ * that also pass the square test) can never crowd a real corner square out of the pool.
+ */
+export function squareCandidates(g: Gray, qrImg: Pt[], H0: Hom): SquareBlob[] {
+  const cx = qrImg.reduce((s, p) => s + p[0], 0) / 4, cy = qrImg.reduce((s, p) => s + p[1], 0) / 4;
+  const grown = qrImg.map(([x, y]) => [cx + (x - cx) * 1.15, cy + (y - cy) * 1.15] as Pt);
+  const all = detectSquares(g, Infinity).filter((bl) => !insideQuad(grown, bl.x, bl.y));
+  const pool = new Set(all.slice(0, 14));
+  for (const [fx, fy] of FIDUCIALS) {
+    const [px, py] = applyH(H0, fx, fy);
+    [...all].sort((m, n) => Math.hypot(m.x - px, m.y - py) - Math.hypot(n.x - px, n.y - py)).slice(0, 2).forEach((bl) => pool.add(bl));
+  }
+  return [...pool];
+}
+
+function sampleMm(g: Gray, H: Hom, x: number, y: number): number {
+  const [u, v] = applyH(H, x, y);
+  return sample(g, u, v);
+}
+
+/**
+ * Locate one corner square near its predicted centre, sub-pixel. Windows of ±8, ±15 and ±26 mm are tried,
+ * smallest first. In the window the dark blobs are flood-filled; one counts only when it is not cut by the
+ * window, has 0.6–1.5 × the square's area, 0.65–1.5 × its width and height and fills ≥ 80% of its box.
+ * The nearest such blob wins; its centre is the intensity-weighted centroid. Returns image px or null.
+ */
+export function refineFiducial(g: Gray, H: Hom, c: Pt): Pt | null {
+  for (const half of [8, 15, 26]) {
+    const r = refineIn(g, H, c, half);
+    if (r) return r;
+  }
+  return null;
+}
+
+function refineIn(g: Gray, H: Hom, c: Pt, half: number): Pt | null {
+  const step = half > 20 ? 0.5 : half > 10 ? 0.4 : 0.3;
+  const n = Math.floor((2 * half) / step) + 1;
+  const val = new Float32Array(n * n);
+  let mn = Infinity, mx = -Infinity;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const v = sampleMm(g, H, c[0] - half + i * step, c[1] - half + j * step);
+    if (!Number.isFinite(v)) return null;
+    val[j * n + i] = v;
+    if (v < mn) mn = v;
+    if (v > mx) mx = v;
+  }
+  if (mx - mn < 0.18 * 255) return null;
+  const thr = (mn + mx) / 2;
+  const mid = (n - 1) / 2;
+  const seen = new Uint8Array(n * n);
+  const want = FID_SIZE * FID_SIZE;
+  let best: { d: number; x: number; y: number } | null = null;
+  for (let start = 0; start < n * n; start++) {
+    if (seen[start] || val[start] >= thr) continue;
+    const st = [start];
+    seen[start] = 1;
+    let sx = 0, sy = 0, sw = 0, cnt = 0, i0 = n, i1 = -1, j0 = n, j1 = -1;
+    while (st.length) {
+      const k = st.pop()!;
+      const i = k % n, j = (k - i) / n;
+      const wgt = thr - val[k];
+      sx += i * wgt; sy += j * wgt; sw += wgt; cnt++;
+      if (i < i0) i0 = i; if (i > i1) i1 = i; if (j < j0) j0 = j; if (j > j1) j1 = j;
+      if (i + 1 < n && !seen[k + 1] && val[k + 1] < thr) { seen[k + 1] = 1; st.push(k + 1); }
+      if (i > 0 && !seen[k - 1] && val[k - 1] < thr) { seen[k - 1] = 1; st.push(k - 1); }
+      if (j + 1 < n && !seen[k + n] && val[k + n] < thr) { seen[k + n] = 1; st.push(k + n); }
+      if (j > 0 && !seen[k - n] && val[k - n] < thr) { seen[k - n] = 1; st.push(k - n); }
+    }
+    if (i0 === 0 || j0 === 0 || i1 === n - 1 || j1 === n - 1) continue;
+    const bw = (i1 - i0 + 1) * step, bh = (j1 - j0 + 1) * step, area = cnt * step * step;
+    if (area < want * 0.6 || area > want * 1.5) continue;
+    if (bw < FID_SIZE * 0.65 || bw > FID_SIZE * 1.5 || bh < FID_SIZE * 0.65 || bh > FID_SIZE * 1.5) continue;
+    if (area / (bw * bh) < 0.8) continue;
+    const ci = sx / sw, cj = sy / sw;
+    const d = Math.hypot(ci - mid, cj - mid);
+    if (!best || d < best.d) best = { d, x: c[0] - half + ci * step, y: c[1] - half + cj * step };
+  }
+  return best ? applyH(H, best.x, best.y) : null;
+}
+
+/**
+ * Pose: first the global corner-square search; if it fails, grow outward from the QR one corner square at a
+ * time (nearest first), refitting an affine model until three squares are known and a homography after that.
+ */
 export function estimatePose(g: Gray, qr: QRHit): Pose | null {
-  const size = 17 + 4 * qr.version;
-  const qg = qrGeometry(size);
-  const H0 = solveHomography(qg.corners, qr.corners);
+  const qc = qrCorners();
+  const H0 = solveHomography(qc, qr.corners);
   if (!H0) return null;
   const ppm0 = localScale(H0, FRAME_W / 2, FRAME_H / 2);
   if (!Number.isFinite(ppm0) || ppm0 < 0.8) return null;
-  const inv0 = invertH(H0);
-  const blobs = darkBlobs(g, ppm0).filter((b) => {
-    b.mm = applyH(inv0, b.x, b.y);
-    const [x, y] = b.mm;
-    const inQr = x > QR_BOX.x - 2 && x < QR_BOX.x + QR_BOX.size + 2 && y > QR_BOX.y - 2 && y < QR_BOX.y + QR_BOX.size + 2;
-    return !inQr && x > -30 && x < FRAME_W + 30 && y > -30 && y < FRAME_H + 30;
-  });
-  const cands: Blob[][] = FIDUCIALS.map(([fx, fy]) =>
-    blobs
-      .map((b) => ({ b, d: Math.hypot(b.mm[0] - fx, b.mm[1] - fy) }))
-      .filter((o) => o.d < 45)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, 3)
-      .map((o) => o.b),
-  );
-  type Fit = { H: Hom; pick: (Blob | null)[]; k: number; err: number };
-  let best: Fit | null = null;
-  const pick: (Blob | null)[] = [null, null, null, null];
-  const evaluate = () => {
-    const used = pick.filter(Boolean) as Blob[];
-    if (new Set(used).size !== used.length) return;
-    const k = used.length;
-    if (best && k < best.k) return;
-    const src: Pt[] = [...qg.corners];
-    const dst: Pt[] = [...qr.corners];
-    const wts = [1, 1, 1, 1];
-    pick.forEach((b, i) => { if (b) { src.push(FIDUCIALS[i]); dst.push([b.x, b.y]); wts.push(k >= 3 ? 6 : 2); } });
-    const H = k === 0 ? H0 : solveHomography(src, dst, wts);
-    if (!H) return;
-    const ppm = localScale(H, FRAME_W / 2, FRAME_H / 2);
-    let err = 0;
-    for (let i = 0; i < 4; i++) {
-      const b = pick[i];
-      if (!b) continue;
-      const [px, py] = applyH(H, FIDUCIALS[i][0], FIDUCIALS[i][1]);
-      const r = Math.hypot(px - b.x, py - b.y) / ppm;
-      if (r > 1.2) return;
-      const s = localScale(H, FIDUCIALS[i][0], FIDUCIALS[i][1]);
-      const mmArea = b.area / (s * s);
-      if (mmArea < 33 || mmArea > 70) return;
-      err += r * r;
+  let H = H0;
+  let found: (Pt | null)[] = [null, null, null, null];
+  let method: Pose['method'] = 'qr';
+  const gp = globalPose(g, qr.corners, squareCandidates(g, qr.corners, H0));
+  if (gp) {
+    method = 'global';
+    H = gp.H;
+    gp.img.forEach((p, k) => { found[CW[k]] = p; });
+    for (let iter = 0; iter < 2; iter++) {
+      const again = FIDUCIALS.map((f) => refineFiducial(g, H, f));
+      if (again.some((p) => !p)) break;
+      found = again;
+      const nx = solveHomography(FIDUCIALS, again as Pt[]);
+      if (nx) H = nx;
     }
-    for (let i = 0; i < 4; i++) {
-      const [px, py] = applyH(H, qg.corners[i][0], qg.corners[i][1]);
-      const r = Math.hypot(px - qr.corners[i][0], py - qr.corners[i][1]) / ppm;
-      if (r > 2.0) return;
-      err += (r * r) / 8;
+  } else {
+    const qcx = qc.reduce((s, p) => s + p[0], 0) / 4, qcy = qc.reduce((s, p) => s + p[1], 0) / 4;
+    const order = [0, 1, 2, 3].sort((a, b) => Math.hypot(FIDUCIALS[a][0] - qcx, FIDUCIALS[a][1] - qcy) - Math.hypot(FIDUCIALS[b][0] - qcx, FIDUCIALS[b][1] - qcy));
+    const refit = () => {
+      const idx = order.filter((i) => found[i]);
+      const src = [...idx.map((i) => FIDUCIALS[i]), ...qc];
+      const dst = [...idx.map((i) => found[i] as Pt), ...qr.corners];
+      const nx = idx.length >= 3 ? solveHomography(src, dst) : findAffine(src, dst);
+      if (nx) H = nx;
+    };
+    for (const i of order) {
+      const p = refineFiducial(g, H, FIDUCIALS[i]);
+      if (p) { found[i] = p; refit(); }
     }
-    const cur: Fit | null = best;
-    if (!cur || k > cur.k || (k === cur.k && err < cur.err)) best = { H, pick: [...pick], k, err };
-  };
-  const rec = (i: number) => {
-    if (i === 4) { evaluate(); return; }
-    pick[i] = null;
-    rec(i + 1);
-    for (const b of cands[i]) { pick[i] = b; rec(i + 1); }
-    pick[i] = null;
-  };
-  rec(0);
-  const fit = best as Fit | null;
-  const H = fit ? fit.H : H0;
-  const fid = fit ? fit.pick.map((b) => (b ? ([b.x, b.y] as Pt) : null)) : [null, null, null, null];
-  let se = 0, n = 0;
-  fid.forEach((p, i) => {
+    let k = found.filter(Boolean).length;
+    for (let iter = 0; iter < 2 && k >= 3; iter++) {
+      const again = FIDUCIALS.map((f) => refineFiducial(g, H, f));
+      const ka = again.filter(Boolean).length;
+      if (ka < k) break;
+      found = again;
+      k = ka;
+      const idx = order.filter((i) => found[i]);
+      const nx = k === 4
+        ? solveHomography(FIDUCIALS, found as Pt[])
+        : solveHomography([...idx.map((i) => FIDUCIALS[i]), ...qc], [...idx.map((i) => found[i] as Pt), ...qr.corners]);
+      if (nx) H = nx;
+    }
+    if (k > 0) method = 'grow';
+  }
+  let se = 0, cnt = 0;
+  found.forEach((p, i) => {
     if (!p) return;
-    const [px, py] = applyH(H, FIDUCIALS[i][0], FIDUCIALS[i][1]);
-    se += (px - p[0]) ** 2 + (py - p[1]) ** 2;
-    n++;
-  });
-  qg.corners.forEach(([x, y], i) => {
-    const [px, py] = applyH(H, x, y);
-    se += (px - qr.corners[i][0]) ** 2 + (py - qr.corners[i][1]) ** 2;
-    n++;
+    const q = applyH(H, FIDUCIALS[i][0], FIDUCIALS[i][1]);
+    se += Math.hypot(q[0] - p[0], q[1] - p[1]);
+    cnt++;
   });
   return {
-    H,
-    fiducials: fid,
-    fiducialsFound: fid.filter(Boolean).length,
-    fitError: Math.sqrt(se / n),
-    pxPerMm: localScale(H, FRAME_W / 2, FRAME_H / 2),
+    H, fiducials: found, fiducialsFound: cnt, fitError: cnt ? se / cnt : NaN,
+    pxPerMm: localScale(H, FRAME_W / 2, FRAME_H / 2), method,
   };
 }
 
@@ -255,76 +427,68 @@ export interface CellReading {
   kind: 'day' | 'adv';
   n: number;
   half: 0 | 1 | null;
-  ratio: number;
+  ratio: number; // centre / local paper; NaN when the spot is not in the photo
   punched: boolean;
   unsure: boolean;
   hole?: HoleInfo;
 }
 
-export interface Calibration { threshold?: number; tolerance?: number }
+/** Saved calibration (the live storage names). */
+export interface Calibration { punchRatio?: number; alignTolMm?: number }
 
-const DISC_PTS: Pt[] = (() => {
-  const p: Pt[] = [];
-  for (let y = -SAMPLE_R; y <= SAMPLE_R + 1e-9; y += 0.4)
-    for (let x = -SAMPLE_R; x <= SAMPLE_R + 1e-9; x += 0.4) if (x * x + y * y <= SAMPLE_R * SAMPLE_R) p.push([x, y]);
-  return p;
-})();
-
-function sampleMm(g: Gray, H: Hom, x: number, y: number): number {
-  const [u, v] = applyH(H, x, y);
-  return sample(g, u, v);
-}
-
-function patchMean(g: Gray, H: Hom, x: number, y: number, step: number, n: number): number {
-  let s = 0, c = 0;
-  const h = (n - 1) / 2;
-  for (let j = -h; j <= h; j++) for (let i = -h; i <= h; i++) {
-    const v = sampleMm(g, H, x + i * step, y + j * step);
-    if (Number.isNaN(v)) return NaN;
-    s += v; c++;
+/** Mean of a disc in frame mm; NaN unless at least 85% of it lies inside the photo. */
+function discMean(g: Gray, H: Hom, cx: number, cy: number, r: number, step: number): number {
+  let s = 0, n = 0, total = 0;
+  for (let dy = -r; dy <= r + 1e-9; dy += step) for (let dx = -r; dx <= r + 1e-9; dx += step) {
+    if (dx * dx + dy * dy > r * r) continue;
+    total++;
+    const v = sampleMm(g, H, cx + dx, cy + dy);
+    if (Number.isFinite(v)) { s += v; n++; }
   }
-  return s / c;
-}
-
-function bgPoints(role: Role): Pt[] {
-  return role === 'S'
-    ? [[-20, 40], [-20, 90], [FRAME_W + 20, 40], [FRAME_W + 20, 90], [40, -20], [140, -20], [40, 150], [93, 150], [150, 150]]
-    : [[-20, 30], [-20, 90], [FRAME_W + 20, 30], [FRAME_W + 20, 90], [40, -30], [93, -30], [150, -30], [60, 150], [130, 150]];
+  return n && n >= total * 0.85 ? s / n : NaN;
 }
 
 /**
- * Hole centre by an iterative (mean-shift) centroid of dark pixels in a window that follows the hole.
- * The window (3.7mm) holds a whole 3mm hole but not the printed number or a neighbouring hole, so a hole
- * punched up to ~3mm off its circle is still measured instead of being clipped away.
+ * Hole centre: flood-fill the dark region connected to the target inside a 6 mm disc, with the date number's
+ * box masked out. The seed must lie within 2.2 mm of the target and the hole must cover at least 4 mm².
  */
-function holeCentre(g: Gray, H: Hom, cx: number, cy: number, paper: number, thr: number, maxShift: number): HoleInfo | undefined {
-  const win = 3.7;
-  const step = 0.25;
-  let ex = 0, ey = 0, sw = 0, rim = 0;
-  for (let iter = 0; iter < 6; iter++) {
-    let sx = 0, sy = 0;
-    sw = 0; rim = 0;
-    for (let y = -win; y <= win + 1e-9; y += step) {
-      for (let x = -win; x <= win + 1e-9; x += step) {
-        const rr = Math.hypot(x, y);
-        if (rr > win) continue;
-        const v = sampleMm(g, H, cx + ex + x, cy + ey + y);
-        if (Number.isNaN(v)) return undefined;
-        const wgt = Math.max(0, Math.min(1, (thr - v / paper) / 0.12 + 0.5));
-        if (wgt <= 0) continue;
-        sw += wgt; sx += wgt * x; sy += wgt * y;
-        if (rr > win - 0.3 && wgt > 0.5) rim++;
-      }
-    }
-    if (sw <= 0) return undefined;
-    const nx = ex + sx / sw, ny = ey + sy / sw;
-    const moved = Math.hypot(nx - ex, ny - ey);
-    ex = nx; ey = ny;
-    if (Math.hypot(ex, ey) > maxShift) break;
-    if (moved < 0.02) break;
+function holeCentre(g: Gray, H: Hom, cx: number, cy: number, thr: number, skip: { x0: number; y0: number; x1: number; y1: number }): HoleInfo | undefined {
+  const R = 6, step = 0.25;
+  const n = Math.round((2 * R) / step) + 1;
+  const dark = new Uint8Array(n * n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const x = -R + i * step, y = -R + j * step;
+    if (x * x + y * y > R * R) continue;
+    const px = cx + x, py = cy + y;
+    if (px >= skip.x0 && px <= skip.x1 && py >= skip.y0 && py <= skip.y1) continue;
+    const v = sampleMm(g, H, px, py);
+    if (Number.isFinite(v) && v < thr) dark[j * n + i] = 1;
   }
-  const r = Math.sqrt((sw * step * step) / Math.PI);
-  return { dx: ex, dy: ey, r, clipped: rim > 3 || r < 2.3 || r > 3.6 || Math.hypot(ex, ey) > maxShift };
+  const mid = (n - 1) / 2;
+  let seed = -1, best = Infinity;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) if (dark[j * n + i]) {
+    const d = (i - mid) ** 2 + (j - mid) ** 2;
+    if (d < best) { best = d; seed = j * n + i; }
+  }
+  if (seed < 0 || best > (2.2 / step) ** 2) return undefined;
+  const st = [seed];
+  dark[seed] = 2;
+  let cnt = 0, sx = 0, sy = 0, clipped = false;
+  while (st.length) {
+    const k = st.pop()!;
+    const i = k % n, j = (k - i) / n;
+    cnt++; sx += i; sy += j;
+    if (Math.hypot(-R + i * step, -R + j * step) > R - 1.5 * step) clipped = true;
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ni = i + di, nj = j + dj;
+      if (ni < 0 || nj < 0 || ni >= n || nj >= n) continue;
+      const nk = nj * n + ni;
+      if (dark[nk] === 1) { dark[nk] = 2; st.push(nk); }
+    }
+  }
+  const area = cnt * step * step;
+  if (area < 4) return undefined;
+  return { dx: -R + (sx / cnt) * step, dy: -R + (sy / cnt) * step, r: Math.sqrt(area / Math.PI), clipped };
 }
 
 export interface PunchResult {
@@ -333,140 +497,118 @@ export interface PunchResult {
   bgRef: number;
   grey?: number;
   ambiguousSurface: boolean;
-  allUnsure: boolean;
+  contrastOk: boolean;
   warnings: WarningCode[];
 }
+
+/** Background row just beyond where the cut can be (frame mm y), sampled every 6 mm. */
+export const bgRowY = (role: Role) => (role === 'S' ? FRAME_H + 12 + 5 + 5 : -(12 + 5 + 5));
 
 export function readPunches(g: Gray, H: Hom, spec: CardSpec, role: Role, cal: Calibration = {}): PunchResult {
   const targets = targetsFor(spec);
   const warnings = new Set<WarningCode>();
+  const ppm = localScale(H, FRAME_W / 2, FRAME_H / 2);
+  const step = Math.max(0.25, Math.min(0.5, 1 / ppm));
+  const allRefs: number[] = [];
   const raw = targets.map((t) => {
-    let s = 0, n = 0, nan = false;
-    for (const [dx, dy] of DISC_PTS) {
-      const v = sampleMm(g, H, t.cx + dx, t.cy + dy);
-      if (Number.isNaN(v)) { nan = true; break; }
-      s += v; n++;
-    }
-    const refs = t.refs.map(([x, y]) => patchMean(g, H, x, y, 0.3, 3));
-    const paper = median(refs);
-    return { t, centre: nan ? NaN : s / n, paper };
+    const refs = t.refs.map(([x, y]) => discMean(g, H, x, y, 0.6, 0.3));
+    allRefs.push(...refs);
+    return { t, centre: discMean(g, H, t.cx, t.cy, SAMPLE_R, step), cellRef: median(refs.filter(Number.isFinite)) };
   });
-  const paperRef = median(raw.map((r) => r.paper));
-  const bgVals = bgPoints(role).map(([x, y]) => {
-    const vals: number[] = [];
-    for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) vals.push(sampleMm(g, H, x + i * 1.2, y + j * 1.2));
-    return vals.some(Number.isNaN) ? NaN : median(vals);
+  const paperRef = median(allRefs.filter(Number.isFinite));
+  const measured = raw.map((r) => {
+    const ref = Number.isFinite(r.cellRef) && r.cellRef >= paperRef * 0.7 ? r.cellRef : paperRef;
+    return { ...r, ref, ratio: r.centre / ref };
   });
-  const bgRef = median(bgVals);
-  const bgRatio = bgRef / paperRef;
-  if (raw.some((r) => Number.isNaN(r.centre) || Number.isNaN(r.paper))) warnings.add('partial');
-  if (Number.isNaN(bgRef)) warnings.add('partial');
-  if (paperRef < 50) warnings.add('dark-photo');
-  const ratios = raw.map((r) => r.centre / r.paper);
+  const bgVals: number[] = [];
+  for (let x = 10; x <= FRAME_W - 10; x += 6) bgVals.push(discMean(g, H, x, bgRowY(role), 0.8, 0.4));
+  const bgRef = median(bgVals.filter(Number.isFinite));
+  if (!(paperRef / 255 > T.darkPhoto)) warnings.add('dark-photo');
+  if (measured.some((m) => !Number.isFinite(m.ratio))) warnings.add('spots-hidden');
+  const contrastOk = Number.isFinite(bgRef) && bgRef < paperRef * T.contrast;
+  const thr = cal.punchRatio ?? T.punch;
+  const [lo, hi] = unsureBand(thr);
   let grey: number | undefined;
   let ambiguousSurface = false;
-  let allUnsure = false;
-  const thr = cal.threshold ?? T.punch;
-  const lo = cal.threshold !== undefined ? thr - (T.punch - T.unsureLo) : T.unsureLo;
-  const hi = cal.threshold !== undefined ? thr + (T.unsureHi - T.punch) : T.unsureHi;
-  const cells: CellReading[] = raw.map((r, i) => {
-    const ratio = ratios[i];
-    const base = { key: r.t.key, kind: r.t.kind, n: r.t.n, half: r.t.half, ratio };
-    return { ...base, punched: false, unsure: true };
-  });
   if (spec.discs) {
-    const near = ratios.filter((x) => Number.isFinite(x) && Math.abs(x - T.discNominal) <= T.discWindow);
-    grey = near.length ? median(near) : T.discNominal;
-    if (Number.isFinite(bgRatio) && Math.abs(bgRatio - grey) < T.ambiguous) {
-      ambiguousSurface = true;
-      warnings.add('ambiguous-surface');
-    }
-    for (const c of cells) {
-      if (!Number.isFinite(c.ratio)) continue;
-      const d = Math.abs(c.ratio - grey);
-      c.punched = d > T.discHole;
-      c.unsure = ambiguousSurface || (d > T.discUnsure && d <= T.discHole);
-    }
-  } else {
-    if (!Number.isFinite(bgRatio) || bgRatio >= T.unsureLo) {
-      warnings.add('dark-surface');
-      allUnsure = true;
-    }
-    for (const c of cells) {
-      if (!Number.isFinite(c.ratio)) continue;
-      c.punched = c.ratio < thr;
-      c.unsure = allUnsure || (c.ratio >= lo && c.ratio <= hi);
-    }
+    const band = measured.map((m) => m.ratio).filter((x) => Number.isFinite(x) && Math.abs(x - T.discNominal) < T.discWindow);
+    grey = band.length >= 3 ? median(band) : T.discNominal;
+    const surf = bgRef / paperRef;
+    ambiguousSurface = Number.isFinite(surf) && Math.abs(surf - grey) < T.ambiguous;
+    if (ambiguousSurface) warnings.add('ambiguous-surface');
   }
-  if (Number.isNaN(bgRef)) allUnsure = true;
-  if (allUnsure) for (const c of cells) c.unsure = true;
-  // Hole centres for alignment: only holes darker than the paper/grey.
-  const maxShift = spec.halves ? 3.0 : 3.6;
-  for (let i = 0; i < cells.length; i++) {
-    const c = cells[i];
-    if (!c.punched || !Number.isFinite(c.ratio) || !Number.isFinite(bgRatio)) continue;
-    let darkThr: number;
-    if (spec.discs) {
-      if (!(c.ratio < (grey as number))) continue;
-      darkThr = ((grey as number) + bgRatio) / 2;
-    } else {
-      if (bgRatio >= T.unsureLo) continue;
-      darkThr = (1 + bgRatio) / 2;
+  const cells: CellReading[] = measured.map((m) => {
+    const unseen = !Number.isFinite(m.ratio);
+    let punched = false, unsure = unseen;
+    if (!unseen) {
+      if (spec.discs) {
+        const d = Math.abs(m.ratio - (grey as number));
+        punched = d > T.discHole;
+        unsure = d > T.discHole * T.discUnsureK && d <= T.discHole;
+      } else {
+        punched = m.ratio <= thr;
+        unsure = m.ratio > lo && m.ratio < hi;
+      }
     }
-    const t = raw[i].t;
-    const h = holeCentre(g, H, t.cx, t.cy, raw[i].paper, darkThr, maxShift);
-    if (h) {
-      c.hole = h;
-      // A whole, unclipped 3mm hole found next to the circle confirms an off-centre punch.
-      if (c.unsure && !allUnsure && !ambiguousSurface && !h.clipped && Math.abs(h.r - 3) < 0.45) c.unsure = false;
+    if (ambiguousSurface) unsure = true;
+    const c: CellReading = { key: m.t.key, kind: m.t.kind, n: m.t.n, half: m.t.half, ratio: m.ratio, punched, unsure };
+    if (punched) {
+      const cell = m.t.cell;
+      // the printed number sits at the top-left of every cell
+      const skip = { x0: cell.x, y0: cell.y, x1: cell.x + (m.t.kind === 'day' ? 4.6 : 3.8), y1: cell.y + (m.t.kind === 'day' ? 4.2 : 3.6) };
+      // the hole's own centre is only measurable when it is darker than the card
+      const dark = !spec.discs ? m.ref * 0.4 : m.ratio < (grey as number) ? (m.centre + (grey as number) * m.ref) / 2 : NaN;
+      if (Number.isFinite(dark)) {
+        const h = holeCentre(g, H, m.t.cx, m.t.cy, dark, skip);
+        if (h) c.hole = h;
+      }
     }
-  }
-  // Fiducial contrast.
-  const fidL = median(FIDUCIALS.map(([x, y]) => sampleMm(g, H, x, y)));
+    return c;
+  });
+  const fidL = median(FIDUCIALS.map(([x, y]) => sampleMm(g, H, x, y)).filter(Number.isFinite));
   if (Number.isFinite(fidL) && fidL / paperRef > 0.45) warnings.add('low-contrast');
-  return { cells, paperRef, bgRef, grey, ambiguousSurface, allUnsure, warnings: [...warnings] };
+  return { cells, paperRef, bgRef, grey, ambiguousSurface, contrastOk, warnings: [...warnings] };
 }
 
-// ---------------- edge ----------------
+// ---------------- cut edge ----------------
 
-export const EDGE_STEP = 2;
-export const EDGE_N = 94; // x = 0..186 step 2
+/** x positions (frame mm) where the cut edge is sampled: 4, 6, …, 182. */
+export const EDGE_XS: number[] = Array.from({ length: 90 }, (_, i) => 4 + i * 2);
 
-export function traceEdge(g: Gray, H: Hom, role: Role): { edge: number[]; coverage: number } {
-  const edge: number[] = [];
-  for (let k = 0; k < EDGE_N; k++) {
-    const x = k * EDGE_STEP;
-    const yIn = role === 'S' ? 121 : -1;
-    const yOut = role === 'S' ? 146 : -26;
-    const dir = role === 'S' ? 1 : -1;
-    const pIn = patchMean(g, H, x, yIn, 0.4, 3);
-    const pOut = patchMean(g, H, x, yOut, 0.4, 3);
-    if (!Number.isFinite(pIn) || !Number.isFinite(pOut) || Math.abs(pIn - pOut) < 0.18 * pIn) { edge.push(NaN); continue; }
-    const mid = (pIn + pOut) / 2;
-    const sIn = Math.sign(pIn - mid);
-    let found = NaN;
-    let prevV = pIn, prevY = yIn;
-    for (let y = yIn; dir > 0 ? y <= yOut : y >= yOut; y += dir * 0.1) {
-      const v = sampleMm(g, H, x, y);
-      if (Number.isNaN(v)) break;
-      if (Math.sign(v - mid) !== sIn) {
-        // confirm it stays on the outside for 1.5mm
-        const v2 = sampleMm(g, H, x, y + dir * 1.5);
-        if (Number.isFinite(v2) && Math.sign(v2 - mid) !== sIn) {
-          const t = (prevV - mid) / (prevV - v || 1);
-          found = prevY + (y - prevY) * Math.max(0, Math.min(1, t));
-          break;
+/**
+ * Trace the cut edge outward from the frame. Skipped entirely when paper/background contrast is poor.
+ * At each x the first paper→background crossing counts only when it stays dark 1.2 mm further, so a
+ * printed line is not taken for the edge. Offsets are from the nominal cut (stock 132, foil −12 mm).
+ */
+export function traceEdge(g: Gray, H: Hom, role: Role, paperRef: number, bgRef: number, contrastOk: boolean): { edge: number[]; coverage: number } {
+  const stock = role === 'S';
+  const t0 = stock ? FRAME_H + 12 - 5 - 3 : -(12 - 5 - 3);
+  const t1 = stock ? FRAME_H + 12 + 5 + 4 : -(12 + 5 + 4);
+  const dir = stock ? 1 : -1;
+  const ppm = localScale(H, FRAME_W / 2, FRAME_H / 2);
+  const tStep = Math.max(0.15, Math.min(0.35, 0.5 / ppm));
+  const edge = EDGE_XS.map((x) => {
+    if (!contrastOk) return NaN;
+    const local = discMean(g, H, x, t0, 0.8, 0.4);
+    const pRef = Number.isFinite(local) && local > bgRef ? local : paperRef;
+    const thr = bgRef + 0.5 * (pRef - bgRef);
+    let prev = sampleMm(g, H, x, t0);
+    for (let t = t0 + dir * tStep; dir * (t1 - t) >= 0; t += dir * tStep) {
+      const v = sampleMm(g, H, x, t);
+      if (!Number.isFinite(v)) break;
+      if (v < thr && prev >= thr) {
+        const v2 = sampleMm(g, H, x, t + dir * 1.2);
+        if (v2 < thr) {
+          const frac = (prev - thr) / Math.max(1e-6, prev - v);
+          const found = t - dir * tStep * (1 - frac);
+          return stock ? found - (FRAME_H + 12) : found + 12;
         }
       }
-      prevV = v; prevY = y;
+      prev = v;
     }
-    if (Number.isFinite(found)) {
-      const off = role === 'S' ? found - 132 : found + 12;
-      edge.push(Math.abs(off) <= 8 ? off : NaN);
-    } else edge.push(NaN);
-  }
-  const coverage = edge.filter(Number.isFinite).length / edge.length;
-  return { edge, coverage };
+    return NaN;
+  });
+  return { edge, coverage: edge.filter(Number.isFinite).length / edge.length };
 }
 
 // ---------------- the whole half ----------------
@@ -476,17 +618,18 @@ export interface HalfScan {
   qr: QRHit;
   pose: Pose;
   cells: CellReading[];
-  edge: number[];
+  edge: number[]; // at EDGE_XS
   edgeCoverage: number;
   paperRef: number;
   bgRef: number;
   grey?: number;
   ambiguousSurface: boolean;
   warnings: WarningCode[];
-  outline: Pt[]; // piece corners in image px
+  outline: Pt[]; // printed frame corners in image px (TL, TR, BR, BL)
 }
 
-export interface ScanResult { width: number; height: number; halves: HalfScan[]; foreign: string[]; invalid: string[]; ms: number }
+/** squaresSeen: when no QR decodes, how many corner-square-like blobs are in view (a card too small or blurred to read). */
+export interface ScanResult { width: number; height: number; halves: HalfScan[]; foreign: string[]; invalid: string[]; ms: number; squaresSeen?: number }
 
 export interface ScanOptions { calibration?: Calibration; maxQrLevel?: number; maxHits?: number }
 
@@ -496,14 +639,19 @@ export function scanHalf(g: Gray, qr: QRHit, decoded: DecodedHalf, opts: ScanOpt
   const { spec, role } = decoded;
   const pr = readPunches(g, pose.H, spec, role, opts.calibration);
   const warnings = new Set<WarningCode>(pr.warnings);
-  if (pose.fiducialsFound < 3) warnings.add('few-fiducials');
+  if (pose.fiducialsFound < 4) warnings.add('few-fiducials');
   if (pose.pxPerMm < 2.4) warnings.add('far');
   if (pose.fitError > 0.9 * pose.pxPerMm) warnings.add('blurry');
-  const { edge, coverage } = traceEdge(g, pose.H, role);
+  // Disc cards with a pairing code read on any plain surface: the cut is then only extra evidence.
+  if (!pr.contrastOk && !(spec.discs && decoded.paired)) warnings.add(spec.discs ? 'edge-surface' : 'dark-surface');
+  const { edge, coverage } = traceEdge(g, pose.H, role, pr.paperRef, pr.bgRef, pr.contrastOk);
+  if (pr.contrastOk && coverage < 0.5) warnings.add('edge-hidden');
   const y0 = role === 'S' ? STOCK_TOP : -12;
   const y1 = role === 'S' ? 132 : FOIL_BOTTOM;
-  const outline = ([[PIECE_X0, y0], [PIECE_X1, y0], [PIECE_X1, y1], [PIECE_X0, y1]] as Pt[]).map(([x, y]) => applyH(pose.H, x, y));
-  if (outline.some(([x, y]) => x < -2 || y < -2 || x > g.width + 2 || y > g.height + 2)) warnings.add('partial');
+  const piece = ([[PIECE_X0, y0], [PIECE_X1, y0], [PIECE_X1, y1], [PIECE_X0, y1]] as Pt[]).map(([x, y]) => applyH(pose.H, x, y));
+  // Information only: the paper margin is often outside the photo when the card fills the frame.
+  if (piece.some(([x, y]) => x < -2 || y < -2 || x > g.width + 2 || y > g.height + 2)) warnings.add('partial');
+  const outline = ([[0, 0], [FRAME_W, 0], [FRAME_W, FRAME_H], [0, FRAME_H]] as Pt[]).map(([x, y]) => applyH(pose.H, x, y));
   return {
     decoded, qr, pose, cells: pr.cells, edge, edgeCoverage: coverage, paperRef: pr.paperRef, bgRef: pr.bgRef,
     grey: pr.grey, ambiguousSurface: pr.ambiguousSurface, warnings: [...warnings], outline,
@@ -511,7 +659,7 @@ export function scanHalf(g: Gray, qr: QRHit, decoded: DecodedHalf, opts: ScanOpt
 }
 
 export function scanGray(g: Gray, opts: ScanOptions = {}): Omit<ScanResult, 'ms'> {
-  const hits = findQRs(g, opts.maxHits ?? 2, opts.maxQrLevel ?? 3);
+  const hits = findQRs(g, opts.maxHits ?? 2, opts.maxQrLevel ?? QR_LADDER - 1);
   const halves: HalfScan[] = [];
   const foreign: string[] = [];
   const invalid: string[] = [];
@@ -522,7 +670,8 @@ export function scanGray(g: Gray, opts: ScanOptions = {}): Omit<ScanResult, 'ms'
     const half = scanHalf(g, h, dec, opts);
     if (half) halves.push(half);
   }
-  return { width: g.width, height: g.height, halves, foreign, invalid };
+  const squaresSeen = hits.length ? undefined : detectSquares(g).length;
+  return { width: g.width, height: g.height, halves, foreign, invalid, ...(squaresSeen !== undefined ? { squaresSeen } : {}) };
 }
 
 export function scanImage(img: RGBAImage, opts: ScanOptions = {}): ScanResult {

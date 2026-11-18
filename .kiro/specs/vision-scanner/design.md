@@ -60,3 +60,8 @@ photoRuns (tests/helpers.ts) so a failure is reported at once.
 - NaN samples (outside the image) become warning "partial" and unsure cells.
 - A worker exception returns ok:false with the message; scanImages throws it, and the UI shows a toast.
 - A crashed worker rejects all pending calls and is recreated on the next call.
+
+## Fix round
+The pose no longer trusts a prediction extrapolated from the 38 mm QR to corners ~170 mm away: the four squares are
+found in the whole photo and fitted on their own; the QR only has to agree within 8% of its side. Luminance stays
+0..255 inside the scanner; the 0..1 limits (0.45 dark, 0.15 too dark, 0.18 contrast) are scaled where used.

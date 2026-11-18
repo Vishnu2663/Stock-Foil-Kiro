@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../ctx';
-import { Field, OptionCard } from '../components/Controls';
+import { Field, OptionCard, Switch } from '../components/Controls';
 import { UI_LANGS, langInfo } from '../../i18n/index';
 import { PRESETS, builtinAvailable, translateStrings, explain } from '../../ai/index';
 import { clearAll, type AiProvider } from '../../store/index';
@@ -93,11 +93,12 @@ export default function Settings() {
 
         <div className="panel stack">
           <h2>Calibration</h2>
-          <p className="small ui">{settings.calibration.threshold !== undefined || settings.calibration.tolerance !== undefined ? t('This device uses calibrated settings.') : t('This device uses the default settings.')}</p>
+          <p className="small ui">{settings.calibration.punchRatio !== undefined || settings.calibration.alignTolMm !== undefined ? t('This device uses calibrated settings.') : t('This device uses the default settings.')}</p>
           <div className="row">
             <a className="btn" href="#/calibrate">{t('Calibrate')}</a>
             <button className="btn" onClick={() => { setSettings({ calibration: {} }); toast(t('Back to the default settings.'), 'good'); }}>{t('Reset calibration')}</button>
           </div>
+          <Switch checked={settings.scannerDebug} onChange={(v) => setSettings({ scannerDebug: v })} label={t('Scanner debug')} hint={t('Shows corner squares found, px per mm, paper and background brightness and cell counts on the camera picture. No names or card data.')} />
         </div>
         <div className="panel stack">
           <h2>Data on this device</h2>

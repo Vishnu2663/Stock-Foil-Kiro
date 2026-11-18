@@ -3,13 +3,15 @@ import type { RGBAImage } from '../vision/image';
 import { makePdf, type PdfPage } from '../render/pdf';
 import type { Bitmap } from '../render/rasterSvg';
 
-export async function fileToImage(file: Blob, maxDim = 1800): Promise<RGBAImage> {
+export async function fileToImage(file: Blob, maxDim = 1600): Promise<RGBAImage> {
   let w = 0, h = 0;
-  let source: CanvasImageSource;
-  if ('createImageBitmap' in window) {
-    const bmp = await createImageBitmap(file);
+  let source: CanvasImageSource | null = null;
+  try {
+    // EXIF rotation applied, so a phone photo taken sideways is read upright
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
     w = bmp.width; h = bmp.height; source = bmp;
-  } else {
+  } catch { source = null; }
+  if (!source) {
     const url = URL.createObjectURL(file);
     const img = new Image();
     await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('Could not read the photo')); img.src = url; });
@@ -27,7 +29,7 @@ export async function fileToImage(file: Blob, maxDim = 1800): Promise<RGBAImage>
 }
 
 let frameCanvas: HTMLCanvasElement | null = null;
-export function videoFrame(video: HTMLVideoElement, maxDim = 960): { img: RGBAImage; scale: number } | null {
+export function videoFrame(video: HTMLVideoElement, maxDim = 1600): { img: RGBAImage; scale: number } | null {
   const w = video.videoWidth, h = video.videoHeight;
   if (!w || !h) return null;
   const s = Math.min(1, maxDim / Math.max(w, h));

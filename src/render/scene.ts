@@ -21,6 +21,12 @@ export interface PhotoOpts {
   paper?: number; // paper luminance, default 0.93
   crop?: number; // fraction of the image width removed on the right (partial capture)
   supersample?: number; // 1 or 2
+  /** Frame only this region (frame mm), e.g. the card filling the photo with no paper margin. */
+  view?: { x0: number; y0: number; x1: number; y1: number };
+  /** Things over the card, e.g. fingers holding it (frame mm, luminance 0..1). */
+  fingers?: { x: number; y: number; r: number; lum?: number }[];
+  /** A hand-held sheet is not flat: the top-left corner region is pushed up-left by up to this many mm. */
+  bend?: number;
 }
 
 export interface HalfInput {
@@ -46,7 +52,7 @@ export interface SceneTruth {
 
 export interface Scene { width: number; height: number; data: Uint8ClampedArray; truth: SceneTruth }
 
-export const EDGE_XS: number[] = Array.from({ length: 94 }, (_, i) => i * 2);
+export const EDGE_XS: number[] = Array.from({ length: 90 }, (_, i) => 4 + i * 2); // same x positions as the scanner
 
 function jitterFn(seed: number, amp: number): (x: number) => number {
   if (!amp) return () => 0;
@@ -78,10 +84,12 @@ function poseFor(role: Role, o: PhotoOpts, rnd: () => number): { H: Hom; width: 
   };
   const src: Pt[] = [[PIECE_X0, y0], [PIECE_X1, y0], [PIECE_X1, y1], [PIECE_X0, y1]];
   const pts = src.map(([x, y]) => project(x, y));
-  const minX = Math.min(...pts.map((p) => p[0])), maxX = Math.max(...pts.map((p) => p[0]));
-  const minY = Math.min(...pts.map((p) => p[1])), maxY = Math.max(...pts.map((p) => p[1]));
-  const mx = 20 + (maxX - minX) * (0.05 + rnd() * 0.04);
-  const my = 20 + (maxY - minY) * (0.05 + rnd() * 0.04);
+  const v = o.view;
+  const bpts = v ? ([[v.x0, v.y0], [v.x1, v.y0], [v.x1, v.y1], [v.x0, v.y1]] as Pt[]).map(([x, y]) => project(x, y)) : pts;
+  const minX = Math.min(...bpts.map((p) => p[0])), maxX = Math.max(...bpts.map((p) => p[0]));
+  const minY = Math.min(...bpts.map((p) => p[1])), maxY = Math.max(...bpts.map((p) => p[1]));
+  const mx = v ? 2 : 20 + (maxX - minX) * (0.05 + rnd() * 0.04);
+  const my = v ? 2 : 20 + (maxY - minY) * (0.05 + rnd() * 0.04);
   const width = Math.ceil(maxX - minX + 2 * mx);
   const height = Math.ceil(maxY - minY + 2 * my);
   const dst = pts.map(([u, v]) => [u - minX + mx, v - minY + my] as Pt);
@@ -127,7 +135,16 @@ export function renderHalf(input: HalfInput, photo: PhotoOpts = {}): Scene {
   const paper = photo.paper ?? 0.93;
   const bg = photo.background ?? 0.12;
   const r2 = HOLE_R * HOLE_R;
-  const sampleLum = (x: number, y: number): number => {
+  const fingers = photo.fingers ?? [];
+  const bend = photo.bend ?? 0;
+  const sampleLum = (x0: number, y0: number): number => {
+    for (const f of fingers) if ((x0 - f.x) ** 2 + (y0 - f.y) ** 2 <= f.r * f.r) return f.lum ?? 0.5;
+    let x = x0, y = y0;
+    if (bend) {
+      // Seen position p0 = paper point p + shift(p); one fixed-point step recovers p.
+      const w = Math.max(0, 1 - Math.hypot(x0, y0) / 90) ** 2;
+      x = x0 + bend * w * 0.7071; y = y0 + bend * w * 0.7071;
+    }
     if (x < PIECE_X0 || x > PIECE_X1) return bg;
     if (role === 'S') {
       if (y < STOCK_TOP || y > 132 + edgeAt(x)) return bg;

@@ -92,6 +92,32 @@ export function solveHomography(src: Pt[], dst: Pt[], weights?: number[]): Hom |
   return normalize(mulH(invertH(Td), mulH(Hn, Ts)));
 }
 
+/**
+ * Least-squares affine fit (6 degrees of freedom) as a homography with no perspective. Much better
+ * conditioned than a full homography when the points sit on one side, so it predicts far markers safely.
+ */
+export function findAffine(src: Pt[], dst: Pt[]): Hom | null {
+  if (src.length < 3 || src.length !== dst.length) return null;
+  const n = src.length;
+  let cx = 0, cy = 0;
+  for (const [x, y] of src) { cx += x; cy += y; }
+  cx /= n; cy /= n;
+  const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const bx = [0, 0, 0], by = [0, 0, 0];
+  for (let i = 0; i < n; i++) {
+    const r = [src[i][0] - cx, src[i][1] - cy, 1];
+    for (let a = 0; a < 3; a++) {
+      bx[a] += r[a] * dst[i][0];
+      by[a] += r[a] * dst[i][1];
+      for (let b = 0; b < 3; b++) A[a][b] += r[a] * r[b];
+    }
+  }
+  const px = solveLinear(A.map((r) => [...r]), bx);
+  const py = solveLinear(A.map((r) => [...r]), by);
+  if (!px || !py) return null;
+  return [px[0], px[1], px[2] - px[0] * cx - px[1] * cy, py[0], py[1], py[2] - py[0] * cx - py[1] * cy, 0, 0, 1];
+}
+
 /** Local scale (px per mm) of the mapping at a point. */
 export function localScale(h: Hom, x: number, y: number): number {
   const e = 0.5;

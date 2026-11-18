@@ -14,7 +14,9 @@ export interface Settings {
   customKey: string;
   speakRate: number;
   simple: boolean;
-  calibration: { threshold?: number; tolerance?: number };
+  calibration: { punchRatio?: number; alignTolMm?: number };
+  /** Show the scanner debug line under the camera picture. */
+  scannerDebug: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -27,6 +29,7 @@ export const DEFAULT_SETTINGS: Settings = {
   speakRate: 0.9,
   simple: false,
   calibration: {},
+  scannerDebug: false,
 };
 
 export interface KV { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
@@ -107,8 +110,10 @@ export function sanitizeSettings(raw: unknown): Settings {
     if (k === 'calibration') {
       if (v && typeof v === 'object' && !Array.isArray(v)) {
         const c = v as Record<string, unknown>;
-        if (typeof c.threshold === 'number' && Number.isFinite(c.threshold)) out.calibration.threshold = c.threshold;
-        if (typeof c.tolerance === 'number' && Number.isFinite(c.tolerance)) out.calibration.tolerance = c.tolerance;
+        // live names first; the names used before this build (threshold, tolerance) are still read
+        const pr = c.punchRatio ?? c.threshold, at = c.alignTolMm ?? c.tolerance;
+        if (typeof pr === 'number' && Number.isFinite(pr)) out.calibration.punchRatio = pr;
+        if (typeof at === 'number' && Number.isFinite(at)) out.calibration.alignTolMm = at;
       }
       continue;
     }

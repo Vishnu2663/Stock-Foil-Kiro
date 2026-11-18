@@ -28,11 +28,11 @@ export default function Demo() {
     if (!sc) { setRun(null); return; }
     let alive = true;
     setBusy(true); setErr(''); setRun(null);
-    runPair(scenario(sc).input, settings.calibration.tolerance)
+    runPair(scenario(sc).input, settings.calibration)
       .then((r) => { if (alive) setRun(r); }, (e) => { if (alive) setErr((e as Error).message); })
       .finally(() => { if (alive) setBusy(false); });
     return () => { alive = false; };
-  }, [sc, settings.calibration.tolerance]);
+  }, [sc, settings.calibration]);
 
   return (
     <div className="stack">

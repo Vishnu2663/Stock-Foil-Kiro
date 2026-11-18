@@ -52,3 +52,12 @@ The screens have no properties of their own. Their rules are checked through:
 - A photo that fails to read shows "Could not read the photo: …"; busy is cleared in `finally`.
 - Explain falls back to the offline text when the AI is off or fails (src/ai/index.ts).
 - Speech and storage errors never block the result.
+
+## Fix round: live capture (R6)
+- `src/vision/capture.ts`: `captureBlocker(h)` is the pure capture rule (R6.2), `readingSummary` and `debugLine`
+  feed the hints and the debug line. Tested directly in tests/cameraScan.test.ts.
+- `src/ui/components/Camera.tsx`: `CAMERA` holds the timing (tick 450, frame 1600, streak 2, cooldown 1800, flash 1600,
+  retry 7000, hold 2200, fade 800). The app context is read through a ref, so the stream effect has no dependencies.
+  The displayed video rect (object-fit: contain) is measured and the viewfinder, flash and status bar are placed in it.
+- `src/ui/scanAsync.ts`: `scanImages` falls back to `scanHere` (main thread, after 30 ms) on any worker failure.
+- Scanner changes are in .kiro/specs/vision-scanner (pose, punches, edge) and pair-and-pay (edge match, alignment).

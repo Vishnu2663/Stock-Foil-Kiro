@@ -71,7 +71,7 @@ export default function Lab() {
 
   const go = async () => {
     setBusy(t('Rendering photos and scanning…')); setRun(null);
-    try { setRun(await runPair(build(), settings.calibration.tolerance)); } finally { setBusy(''); }
+    try { setRun(await runPair(build(), settings.calibration)); } finally { setBusy(''); }
   };
 
   const printTrip = async () => {
@@ -79,9 +79,9 @@ export default function Lab() {
     try {
       const input = build();
       const bmp = await sheetBitmap(sheetSvg(input.spec), 6);
-      const sim = await roundTrip(input, bmp);
+      const sim = await roundTrip(input, bmp, { calibration: settings.calibration });
       const { stock, foil } = pickHalves(sim.scans.flatMap((s) => s.halves));
-      setRun({ sim, stock, foil, result: verifyPair(stock, foil, { tolerance: settings.calibration.tolerance }) });
+      setRun({ sim, stock, foil, result: verifyPair(stock, foil, { alignTolMm: settings.calibration.alignTolMm }) });
     } finally { setBusy(''); }
   };
 
