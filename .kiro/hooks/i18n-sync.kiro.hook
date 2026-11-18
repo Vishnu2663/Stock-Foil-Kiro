@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "name": "i18n sync",
+  "description": "When a file in src/ui is saved, extract UI strings and check the translation packs.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": ["src/ui/**/*.ts", "src/ui/**/*.tsx"]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A file in src/ui was saved. If both scripts/extract-ui-strings.mjs and scripts/check-ui-pack.mjs exist, run `node scripts/extract-ui-strings.mjs && node scripts/check-ui-pack.mjs` and list any new or missing strings per language. If either script is missing, report exactly: \"i18n sync: not yet available (arrives in Phase 10)\" and stop. Do not edit files."
+  }
+}

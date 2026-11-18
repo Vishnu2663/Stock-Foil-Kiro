@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Kiro log",
+  "description": "When a spec task finishes, check if all tasks of that spec are done and append an entry to docs/KIRO_LOG.md.",
+  "version": "1",
+  "when": {
+    "type": "postTaskExecution"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A spec task just finished. Open that spec's tasks.md. If every task is checked off, append a dated entry (today's date) to docs/KIRO_LOG.md under the right sections: what was built, Kiro features used, bugs the property tests caught (with shrunk counterexamples), and screenshot paths. If tasks remain, do nothing and say so in one line."
+  }
+}

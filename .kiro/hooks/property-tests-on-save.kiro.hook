@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "name": "Property tests on save",
+  "description": "When a file in src/core or src/vision is saved, run the related property tests with SF_RUNS=10 and report.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": ["src/core/**/*.ts", "src/vision/**/*.ts"]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A file in src/core or src/vision was saved. Find the related test file(s) in tests/ (same area name, for example src/core/card.ts maps to tests/card*.test.ts). If none exist yet, say so and stop. Otherwise run them with `SF_RUNS=10 npx vitest run <files>` and report pass or fail. On failure, show the fast-check counterexample and seed, and propose a fix. Do not edit files unless asked."
+  }
+}

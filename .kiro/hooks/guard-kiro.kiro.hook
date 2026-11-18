@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "name": "Guard .kiro",
+  "description": "When .gitignore is edited, make sure .kiro is never ignored.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [".gitignore"]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": ".gitignore was edited. Read it and confirm no line ignores .kiro (for example `.kiro`, `.kiro/`, `/.kiro`, `.kiro/*`, `*.kiro.hook`). Also run `git check-ignore -v .kiro/steering/product.md` and expect no output. If .kiro is ignored, remove the offending line and tell the user. Otherwise report \"OK: .kiro is tracked\"."
+  }
+}

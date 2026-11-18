@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Pre-submit audit",
+  "description": "Manual. Checks every submission requirement in section 5 of docs/BUILD_BRIEF.md and reports pass or fail.",
+  "version": "1",
+  "when": {
+    "type": "userTriggered"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Run the pre-submit audit. Read section 5 of docs/BUILD_BRIEF.md and check each item, reporting PASS, FAIL or MANUAL (cannot be verified from the repo) with evidence: (1) public HTTPS URL that works offline: check the Pages workflow, the live URL in README, public/sw.js; (2) public GitHub repo, MIT LICENSE present and recognised, instructions in README; (3) .kiro at repo root with specs, steering, hooks and not in .gitignore (`git check-ignore .kiro`); (4) demo video link under 3 minutes in README or docs; (5) docs/DEVPOST.md and docs/HOW_KIRO_WAS_USED.md exist in English with category Resurrection; (6) blog draft says it is part of Kiroween 2026; (7) disclosure sentence present in docs/DEVPOST.md; (8) `npm ci && npm test && npm run build` pass; (9) deadline 4 Dec 2026 2:00 pm PT. Do not write the user's social media post."
+  }
+}
