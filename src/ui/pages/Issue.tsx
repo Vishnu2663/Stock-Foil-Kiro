@@ -25,7 +25,7 @@ function initialForm(): { form: Form; editId?: string } {
   removeKey(KEYS.prefill);
   const f: Form = {
     worker: '', employer: '', year: now.getFullYear(), month: now.getMonth() + 1, rate: '500', adv: '100', currency: 'INR', lang: 'en',
-    pairing: true, halves: false, discs: false, carryOn: false, carry: '',
+    pairing: true, halves: true, discs: true, carryOn: false, carry: '',
   };
   if (pre) {
     if (pre.worker !== undefined) f.worker = pre.worker;

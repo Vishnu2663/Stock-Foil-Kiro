@@ -60,3 +60,18 @@ Phase 0 was vibe mode (steering, hooks, agents, scaffold). Phases 1 to 12 are sp
 - Found during the build (not by a property): jsQR did not read the QR at the combined worst case of the envelope (−25°, tilt 12°/8°, blur 1.3, noise 0.03). Each condition alone reads exactly; the envelope property uses mild tilt (≤ 6°) as in the brief. Outside it the scanner finds no QR or warns.
 - Splash fix: in background or headless tabs requestAnimationFrame never fires, so the splash stayed up; a timer fallback now finishes it.
 - Screenshots: `docs/screenshots/<page>-1280.png` and `<page>-375.png` for all 15 pages (`sh scripts/shots.sh`).
+## 2026-11-18 · Fix round · Payday scan from a webcam recording
+- Input: a screen recording of #/scan with a laptop webcam and a worker half printed by this app (days 4, 5, 6 and advances 1, 2). Nothing was captured; the top-left corner square was never found; cells flickered and sometimes all turned amber; the status was not visible on the video.
+- Reproduced in tests (tests/cameraPhotos.ts, tests/cameraScan.test.ts): the real sheet SVG with its text lines, photographed at 3–3.6 px/mm, ±6° tilt plus skew, 1.5 px blur, uneven light, card filling the frame, fingers on the margins, white and dark backgrounds, and a sheet bent up to 7 mm.
+- Causes measured with the previous scanner on the same photos:
+  1. **Capture never fired**: filling the frame gave 'partial', and the camera blocked on it.
+  2. **Every cell amber**: on a white background, and whenever the background sample points fell outside the photo (bg NaN) even on a dark one, the allUnsure rule marked 40/40 cells unsure.
+  3. **QR not read**: at 3 px/mm one QR module is 2.8 px; the camera loop stopped the QR ladder before the upscale, so above ~0.8 px blur nothing decoded. With the full ladder it decodes up to 1.5 px at 3 px/mm.
+  4. **Top-left square**: not reproduced in the simulator (old and new both found 4/4). Checked: QR margin (printer and scanner used the same geometry, so no offset), search window (QR-only prediction extrapolated ~170 mm), joint 1.2 mm residual limit, title merging (4.0 mm clear paper, asserted in a test). The new pose fits the four squares on their own and the debug line names any missed corner, so the next recording will show it.
+- Bugs the property tests caught in this round:
+  1. **Forged hole passed** (`pair.test.ts` property 3): with 4 holes, removing the largest leave-one-out residual removed an honest far hole (d1) and passed the separately made one (d4, 1.6 mm off). Fix: the worst outlier is the hole whose removal leaves the others fitting best.
+  2. **Far corner squares crowded out** (`scanner.test.ts` property 4, 15° tilt): punched holes and the QR's inner squares outranked the two far squares in the 14-blob pool. Fix: leave out QR blobs and add the 2 blobs nearest each predicted corner.
+  3. **Pale table now ambiguous** (property 3): with the real disc grey (#9d9d9d) a 0.78 surface is within 0.26 of the grey; the test now uses 0.9.
+- Kiro features: specs updated first (payday-scan R6, vision-scanner and pair-and-pay fix rounds), property tests, parallel translator sub-agents (31 strings × 5 languages).
+## 2026-11-18 · Printed card in the retro time-card style
+- Built from the user's reference picture: halfSvg/sheetSvg redrawn (monospace, red month stamp, weekend tint, ticket-stub advances, right-panel boxes, dotted perforation). Positions the scanner reads are unchanged; the hole-centre mask moved to the new top-left date number. The recording tests and the 4 mm clearance test pass on the new layout.

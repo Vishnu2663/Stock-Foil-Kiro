@@ -54,3 +54,12 @@ Reference: docs/BUILD_BRIEF.md §4 Phase 3, §6.3.
 7. WHEN two roster rows are the same person THE SYSTEM SHALL make only one card for them.
 8. WHEN every member already has a card THE SYSTEM SHALL create nothing, and running it again SHALL add no duplicates.
 9. WHEN removing a member THE SYSTEM SHALL ask first and keep their cards and receipts.
+## Retro time-card style (user request)
+1. THE SYSTEM SHALL print each half as a retro time card from the card's own data: role word with "who keeps it",
+   a red month stamp, worker/employer names or write-in blanks, weekday header (weekend in red), weekend cells tinted,
+   date numbers top-left, dashed rings (and grey discs on disc cards), a dashed divider on half-day cards, advance tokens
+   as ticket stubs, a right panel with the card code, the daily wage and advance token, and "✓ Paired card" when paired.
+2. The scanned geometry (frame, corner squares, QR box, cells, circles, advance row) SHALL NOT move, and printed text
+   SHALL keep at least 4 mm of clear paper from every corner square.
+3. Month and weekday names SHALL come from Intl in the card's language. New cards default to half-day circles and
+   printed grey discs.

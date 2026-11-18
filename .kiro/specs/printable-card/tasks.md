@@ -23,3 +23,5 @@
   - _Requirements: R4.1–R4.4, R4.6, R4.9_
 - [x] 7. Verify and log
   - screenshots of #/issue and #/members at 1280px and 375px; KIRO_LOG entry for Phase 3
+- [x] Retro time-card style: src/render/sheet.ts halfSvg/sheetSvg; Issue defaults; detect.ts number mask top-left;
+  tests/cameraPhotos.ts text bands follow the new layout (4 mm clearance test passes)
