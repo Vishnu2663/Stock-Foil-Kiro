@@ -1,0 +1,25 @@
+# Tasks: printable-card (Phase 3)
+- [x] 1. Sheet SVG at true millimetres
+  - src/render/sheet.ts: halfSvg, sheetSvg, qrMatrix, qrGeometry
+  - tests/roundtrip.test.ts: print round-trip reads the real sheet
+  - _Requirements: R1.1–R1.10_
+- [x] 2. Print model for the simulator
+  - src/render/sheet.ts: printModel with the same geometry as the SVG
+  - tests/roundtrip.test.ts
+  - _Requirements: R1.4–R1.8_
+- [x] 3. PDF writer
+  - src/render/pdf.ts: makePdf (one A4 page per JPEG)
+  - tests/roundtrip.test.ts: "pdf" skeleton test
+  - _Requirements: R2.2, R2.3_
+- [x] 4. Members logic
+  - src/core/members.ts: normName, ownsCard, cardCounts, membersWithoutCard, bulkCreate
+  - tests/members.test.ts: properties 1–4
+  - _Requirements: R4.5–R4.8_
+- [x] 5. New card page
+  - src/ui/pages/Issue.tsx: fields, switches, live preview, snap-back, carry offer, Save, Print, PDF, revised card
+  - _Requirements: R3.1–R3.9, R2.1_
+- [x] 6. Members page
+  - src/ui/pages/Members.tsx: roster add/edit/remove, month counts, New card pre-fill, "Create N cards + one PDF"
+  - _Requirements: R4.1–R4.4, R4.6, R4.9_
+- [x] 7. Verify and log
+  - screenshots of #/issue and #/members at 1280px and 375px; KIRO_LOG entry for Phase 3

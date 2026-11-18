@@ -1,0 +1,41 @@
+# Tasks: foundation (Phase 1)
+
+- [x] 1. Route table and hash parser
+  - src/ui/routes.ts (pure), parseHash, splash duration parser
+  - tests/routes.test.ts: P1, P5, P6
+  - _Requirements: R1.1, R1.2, R2.5, R2.6, R5.2_
+- [x] 2. Settings store
+  - src/store/index.ts: DEFAULT_SETTINGS, loadSettings/saveSettings with injected Storage and try/catch
+  - tests/settings.test.ts: P2, P3
+  - _Requirements: R7.1_
+- [x] 3. App context, t() and toast
+  - src/ui/ctx.tsx, components/Toast.tsx; t() template helper in src/i18n/format.ts
+  - tests/format.test.ts: P4
+  - _Requirements: R7.2–R7.5_
+- [x] 4. Tokens, themes, type and layout CSS
+  - src/ui/styles.css: light/dark tokens, fonts, kicker, gutters, safe areas, overflow-x: clip
+  - _Requirements: R3.4, R4.1, R4.2_
+- [x] 5. Icons and Brand
+  - components/Icon.tsx (line icons for every nav item), components/Brand.tsx
+  - _Requirements: R2.2, R2.4_
+- [x] 6. Desktop header with dropdowns and sliding pill
+  - components/Header.tsx, components/NavMenu.tsx: keyboard, Escape, outside click, active state
+  - _Requirements: R2.1–R2.12_
+- [x] 7. Phone header, tab bar and More sheet
+  - components/TabBar.tsx, components/MoreSheet.tsx
+  - _Requirements: R3.1–R3.5_
+- [x] 8. Router hook, placeholders and App
+  - src/ui/useRoute.ts, pages/Placeholder.tsx, App.tsx; scroll to top; document.title
+  - _Requirements: R1.3–R1.5_
+- [x] 9. Splash loader
+  - inline splash in index.html, src/ui/splash.ts
+  - _Requirements: R5.1–R5.7_
+- [x] 10. Ambient effects
+  - src/ui/fx.ts, components/Ambient.tsx: ripple, reveal, tilt (rAF), page turn, lite, reduced motion
+  - _Requirements: R6.1–R6.7_
+- [x] 11. PWA
+  - public/manifest.webmanifest, public/sw.js, registration in main.tsx (production only)
+  - _Requirements: R8.1–R8.4_
+- [x] 12. Verify and log
+  - typecheck, test, build; screenshots at 1280px and 375px (browser MCP when enabled, otherwise reported as
+    pending); overflow check at 1001/1100/1239/1280px; KIRO_LOG entry; commit

@@ -1,0 +1,41 @@
+# Tasks: ledger-and-money (Phase 8)
+- [x] 1. Receipt chain
+  - src/core/history.ts: types, GENESIS, receiptString, appendReceipt, verifyChain, receiptDays
+  - tests/ledger.test.ts: P1, P2
+  - _Requirements: R1.1–R1.5_
+- [x] 2. Paid status
+  - latestPaid, latestScan, paidInfo in settlement.ts
+  - tests/ledger.test.ts: P3
+  - _Requirements: R2.1–R2.3_
+- [x] 3. Carry-forward
+  - prevMonth, carryForward in src/core/settlement.ts
+  - tests/ledger.test.ts: P6
+  - _Requirements: R3.1–R3.3_
+- [x] 4. History grouping and totals
+  - buildHistory with status, month and text filters
+  - tests/ledger.test.ts: P5
+  - _Requirements: R4.1–R4.4_
+- [x] 5. Storage and CSV
+  - src/store/index.ts: KEYS, safe read/write, ledger/cards/members/crew, ledgerToCSV, ledgerFromCSV, clearAll
+  - tests/ledger.test.ts: P1, P7
+  - _Requirements: R5.6, R8.1, R8.2_
+- [x] 6. Certificate
+  - src/store/certificate.ts: build, verify, text round-trip
+  - tests/ledger.test.ts: P4
+  - _Requirements: R7.1, R7.2, R7.4, R7.5_
+- [x] 7. History page
+  - src/ui/pages/History.tsx: chips, filters, month picker, totals, stacked rows on phones
+  - tests/ledger.test.ts: P5 (logic only; the page is checked in screenshots)
+  - _Requirements: R4.1–R4.5_
+- [x] 8. Ledger page
+  - src/ui/pages/Ledger.tsx: receipts, saved cards (reprint, edit, delete), Check chain, Tamper demo, export, import
+  - tests/ledger.test.ts: P1, P2
+  - _Requirements: R5.1–R5.6_
+- [x] 9. Crew page
+  - src/ui/pages/Crew.tsx: payroll rows, total cash, note mix (src/core/cash.ts), CSV, print, remove, clear
+  - tests/cash.test.ts for the note mix
+  - _Requirements: R6.1–R6.3_
+- [x] 10. Income proof page
+  - src/ui/pages/Income.tsx: certificate with QR, print, copy, verifier with a loaded ledger
+  - tests/ledger.test.ts: P4
+  - _Requirements: R7.3–R7.5_

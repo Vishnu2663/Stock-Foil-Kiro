@@ -1,0 +1,30 @@
+# Tasks: pair-and-pay (Phase 6)
+- [x] 1. Comparison of the halves
+  - src/core/wages.ts: compareSets, disputedDays
+  - tests/pair.test.ts: property 1
+  - _Requirements: R1.1–R1.5, R2.6_
+- [x] 2. Pay in three views
+  - wages.ts: payFor (half days, wage change, carry), threeViews
+  - tests/pair.test.ts: properties 2 and 5
+  - _Requirements: R2.1–R2.5, R2.7_
+- [x] 3. Cut edge match
+  - src/vision/pair.ts: edgeMatch
+  - tests/pair.test.ts: property 4 (different cut, legacy cards)
+  - _Requirements: R4.1–R4.4_
+- [x] 4. Alignment of punched-together holes
+  - pair.ts: fitRigid, alignment, holesFromScans (leave-one-out, 1.2mm)
+  - tests/pair.test.ts: property 3
+  - _Requirements: R5.1–R5.5_
+- [x] 5. Checks, pairOk and verdict
+  - pair.ts: verifyPair, pickHalves, VERDICT_LABEL, verdictTone; unsure circles give "review"
+  - tests/pair.test.ts: property 4 (paired card, wrong secret, extra and separate holes)
+  - _Requirements: R3.1–R3.7_
+- [x] 6. Cash breakdown
+  - src/core/cash.ts: NOTES, cashBreakdown, breakdownTotal, combineCash
+  - tests/cash.test.ts: property 6
+  - _Requirements: R6.1–R6.3_
+- [x] 7. Deterministic photo pair tests
+  - fixed pairing secrets in tests/pair.test.ts; photoRuns in tests/helpers.ts
+  - _Requirements: R3.1–R3.4_
+- [x] 8. Verify and log
+  - KIRO_LOG entry for Phase 6, including the "unsure means review" choice

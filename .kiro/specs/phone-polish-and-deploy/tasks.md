@@ -1,0 +1,43 @@
+# Tasks: phone-polish-and-deploy (Phase 12)
+- [x] 1. Phone CSS
+  - src/ui/styles.css: overflow-x clip, nowrap dates, 44px targets, stackable tables, safe areas
+  - tests/routes.test.ts: P3 (layout itself is checked by screenshots, P1)
+  - _Requirements: R1.1–R1.5_
+- [x] 2. Lite mode and scroll pause
+  - src/ui/fx.ts and body.lite / body.scrolling rules in styles.css
+  - _Requirements: R2.1–R2.3_
+- [x] 3. Lazy pages
+  - src/ui/App.tsx: lazy() for 14 pages, Suspense fallback
+  - tests/smoke.test.ts: P4
+  - _Requirements: R2.4_
+- [x] 4. Asset manifest plugin
+  - vite.config.ts: sf-asset-manifest emits assets-manifest.json, base './'
+  - _Requirements: R3.1, R4.2_
+- [x] 5. Service worker
+  - public/sw.js: shell and manifest pre-cache, network-first navigation, cache-first assets, old cache cleanup
+  - _Requirements: R3.2–R3.6_
+- [x] 6. Pages workflow
+  - .github/workflows/pages.yml: build and deploy dist/ to GitHub Pages on push to main
+  - _Requirements: R4.1_
+- [x] 7. Screenshot script
+  - scripts/shots.sh: 15 pages at 1280 and 375 into docs/screenshots (30 files)
+  - _Requirements: R5.1_
+- [x] 8. Static server
+  - scripts/serve.mjs: serves dist/ on port 4173
+  - _Requirements: R5.2_
+- [x] 9. Screenshots reviewed at 375px
+  - docs/screenshots/*-375.png: no sideways scroll, dates on one line
+  - _Requirements: R1.1, R1.3_
+- [x] 10. README
+  - story, live link, video link, how it works, run, test, features, property table, limits, Built with Kiro,
+    jsQR and qrcode licences. README.md is still the short stub when this spec was written.
+  - _Requirements: R6.1_
+- [x] 11. DEPLOY.md and FIELD_TEST.md
+  - not present yet when this spec was written
+  - _Requirements: R6.2, R6.3_
+- [ ] 12. GitHub Pages deploy check
+  - after the first push to main: the workflow run is green and the site loads over HTTPS
+  - _Requirements: R4.1, R4.3_
+- [ ] 13. Live-bundle check
+  - after the first push: the live index.html points to the same assets/index-<hash>.js as the latest build
+  - _Requirements: R4.3_

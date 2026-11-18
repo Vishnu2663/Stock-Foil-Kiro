@@ -1,0 +1,22 @@
+# Tasks: photo-simulator (Phase 4)
+- [x] 1. Pose and renderer
+  - src/render/scene.ts: poseFor, renderHalf (pixels, holes, cut edge, discs, light, blur, noise, crop)
+  - tests/roundtrip.test.ts: determinism and ground truth
+  - _Requirements: R1.1–R1.5, R2.1, R2.2, R3.1–R3.3_
+- [x] 2. Defects for testing
+  - hole offsets (holeCentres), cut jitter, different-wave cut, payload override
+  - tests/scanner.test.ts, tests/pair.test.ts (they use these options)
+  - _Requirements: R2.3–R2.5_
+- [x] 3. Pairs punched together or apart
+  - renderPair, pairHoles, stackTransform: stacking error, punch jitter, separate holes, forged cut
+  - tests/pair.test.ts (alignment properties)
+  - _Requirements: R4.1–R4.4_
+- [x] 4. SVG rasteriser and print round-trip
+  - src/render/rasterSvg.ts: rasterSheet, inkFromBitmap; HalfInput.ink
+  - tests/roundtrip.test.ts: print round-trip
+  - _Requirements: R5.1–R5.3_
+- [x] 5. Fast photo property runs
+  - tests/helpers.ts: photoRuns with endOnFailure; fixed pairing secrets in the photo pair tests (tests/pair.test.ts)
+  - _Requirements: R3.1_
+- [x] 6. Verify and log
+  - KIRO_LOG entry for Phase 4; screenshots of Demo and Test lab come with Phase 9

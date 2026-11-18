@@ -1,0 +1,31 @@
+# Tasks: card-core (Phase 2)
+- [x] 1. Seeded hashing and random numbers
+  - src/core/prng.ts: hash53, mulberry32, toBase32, randomBase32, gaussian
+  - tests/card.test.ts (used by the code and payload properties)
+  - _Requirements: R1.6, R2.1, R3.1_
+- [x] 2. Card data, amounts and names
+  - src/core/card.ts: CardSpec, clampAmount, clampCarry, cleanName, makeCard, formatMoney, parseMajor
+  - tests/card.test.ts: property 4, cleanName, typed amounts
+  - _Requirements: R1.1–R1.7_
+- [x] 3. Card code and payload
+  - cardCode, versionTag, encodePayload, decodePayload, looksLikeOurs
+  - tests/card.test.ts: properties 1 and 2 (round trip, edit detection, SF1 form, old vector, bad input)
+  - _Requirements: R2.1–R2.7_
+- [x] 4. Wavy cut
+  - src/core/wave.ts: makeWave, stockEdgeY, foilEdgeY, wavePath
+  - tests/wave.test.ts: property 3
+  - _Requirements: R3.1–R3.5_
+- [x] 5. Physical layout
+  - src/core/layout.ts: constants, firstWeekday, dayCell, targetsFor
+  - covered by tests/card.test.ts, tests/wave.test.ts and the scanner tests that read every target
+  - _Requirements: R4.1–R4.6_
+- [x] 6. SHA-256 and pairing
+  - src/core/pairing.ts: sha256Bytes, pairTag, newPairing, verifyPairing
+  - tests/pairing.test.ts: properties 5 and 6
+  - _Requirements: R5.1–R5.5_
+- [x] 7. Homography
+  - src/core/homography.ts: solveHomography (normalised DLT, weights), applyH, invertH, localScale
+  - tests/homography.test.ts: property 7
+  - _Requirements: R6.1–R6.3_
+- [x] 8. Verify and log
+  - typecheck and tests green; KIRO_LOG entry for Phase 2

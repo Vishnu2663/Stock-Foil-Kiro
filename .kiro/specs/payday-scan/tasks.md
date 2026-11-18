@@ -1,0 +1,33 @@
+# Tasks: payday-scan (Phase 7)
+- [x] 1. Result building blocks
+  - src/ui/components/Result.tsx: PaydayCard, PayBreakdown, HalfView, ChecksList, daysText, warningText
+  - logic tested in tests/pair.test.ts
+  - _Requirements: R3.1–R3.8_
+- [x] 2. Picture pay slip and spoken result
+  - Result.tsx: Sun, Coin, NotePic, Slip, spokenResult
+  - tests/cash.test.ts (notes shown on the slip)
+  - _Requirements: R5.4, R5.7_
+- [x] 3. Photo input
+  - src/ui/pages/Scan.tsx: readFiles, drag and drop, chips, per-photo messages
+  - tests/scanner.test.ts (foreign QR)
+  - _Requirements: R1.1–R1.6_
+- [x] 4. Camera
+  - src/ui/components/Camera.tsx: stream, torch, worker loop, 2-frame auto-capture, visibility pause, cleanup
+  - tests/scanner.test.ts (clean-read inputs)
+  - _Requirements: R2.1–R2.6, R2.11_
+- [x] 5. Live overlay, viewfinder and status
+  - Camera.tsx: canvas through object-fit: contain, rings, corner squares, advice text
+  - _Requirements: R2.7–R2.9_
+- [x] 6. Voice prompts
+  - Camera.tsx say(), src/i18n prompt keys
+  - _Requirements: R2.10, R5.4_
+- [x] 7. Verdict, reliability and manual corrections
+  - Scan.tsx: verifyPair wiring, canSave, toggle overrides, disputed views, wage change switch
+  - tests/pair.test.ts
+  - _Requirements: R3.5–R3.7, R3.9, R4.1, R4.2_
+- [x] 8. Ledger, crew, carry and explain actions
+  - Scan.tsx: saveScan, markPaid, addToCrew, carryOn, doExplain, printSlip, listen, paid notice
+  - tests/ledger.test.ts
+  - _Requirements: R3.10, R4.3, R5.1–R5.6_
+- [x] 9. Verify and log
+  - screenshots of #/scan at 1280px and 375px; KIRO_LOG entry for Phase 7

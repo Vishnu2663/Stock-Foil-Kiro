@@ -1,0 +1,31 @@
+# Tasks: languages-and-voice (Phase 10)
+- [x] 1. Language table and dictionaries
+  - src/i18n/index.ts: UI_LANGS, STORY_EXTRA_LANGS, SLIP, VERDICTS, PROMPTS, EXPLAIN
+  - tests/i18n.test.ts: P3
+  - _Requirements: R1.1, R1.4, R1.5, R4.1_
+- [x] 2. Pack compiler and loader
+  - src/i18n/uiPack.ts: compile, translateWith, loadPack, t, format
+  - tests/i18n.test.ts: P4
+  - _Requirements: R2.4, R2.6_
+- [x] 3. DOM translator
+  - src/i18n/dom.ts: MutationObserver, WeakMaps, skip list, __sfUntranslated
+  - _Requirements: R1.2, R2.1–R2.3, R2.5_
+- [x] 4. String tooling
+  - scripts/extract-ui-strings.mjs, extra-strings.json, check-ui-pack.mjs, merge-ui-pack.mjs
+  - tests/i18n.test.ts: P1
+  - _Requirements: R3.1–R3.5_
+- [x] 5. UI packs
+  - src/i18n/ui/{hi,bn,ta,es,sw}.json, 482 strings each, filled by the translator agent in parallel, AI-drafted
+  - tests/i18n.test.ts: P1
+  - _Requirements: R1.1, R1.3, R3.5_
+- [x] 6. Story packs
+  - src/i18n/story/{hi,bn,ta,es,sw,te,mr,fr,pt,ar}.ts and packs.ts, AI-drafted
+  - tests/i18n.test.ts: P2
+  - _Requirements: R4.2_
+- [x] 7. Speech
+  - src/ai/speech.ts: chunkText, scoreVoice, rankVoices, speak, broken-voice memory
+  - tests/ai.test.ts: P5, P6
+  - _Requirements: R5.1–R5.5_
+- [x] 8. Pictures-and-voice mode
+  - src/ui/components/Listen.tsx, body.simple styles, Settings switch and speed
+  - _Requirements: R6.1–R6.4_

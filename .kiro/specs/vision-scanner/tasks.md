@@ -1,0 +1,31 @@
+# Tasks: vision-scanner (Phase 5)
+- [x] 1. Image operations
+  - src/vision/image.ts: toGray, median3, unsharp, upscale2, downscale, integral, boxMean, median
+  - tests/scanner.test.ts (used by every property)
+  - _Requirements: R1.2_
+- [x] 2. QR search
+  - detect.ts findQRs: masking, escalation, original coordinates; foreign and invalid lists
+  - tests/scanner.test.ts: "non Stock & Foil QR codes go to foreign"
+  - _Requirements: R1.1–R1.4_
+- [x] 3. Pose from QR and global corner squares
+  - detect.ts darkBlobs, estimatePose
+  - tests/scanner.test.ts: property 4
+  - _Requirements: R2.1–R2.5_
+- [x] 4. Punch reading
+  - detect.ts readPunches: normal and disc rules, ambiguous surface, calibration, holeCentre (mean-shift)
+  - tests/scanner.test.ts: properties 1 and 3
+  - _Requirements: R3.1–R3.8_
+- [x] 5. Edge trace and warnings
+  - detect.ts traceEdge, scanHalf warnings
+  - tests/scanner.test.ts: property 2
+  - _Requirements: R4.1–R4.3_
+- [x] 6. Worker and promise wrapper
+  - src/vision/worker.ts, src/ui/scanAsync.ts (fallback, error handling), punchSets
+  - tests/scanner.test.ts (scanImage is the same function the worker runs)
+  - _Requirements: R5.1–R5.5_
+- [x] 7. Fix bugs the properties caught
+  - mean-shift hole centroid and unsure confirmation; fixed pairing secrets in photo pair tests; endOnFailure in photoRuns
+  - tests/scanner.test.ts, tests/pair.test.ts, tests/helpers.ts
+  - _Requirements: R3.7, R3.8_
+- [x] 8. Verify and log
+  - KIRO_LOG entry listing both bugs

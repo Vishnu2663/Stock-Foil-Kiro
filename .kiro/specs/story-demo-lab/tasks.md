@@ -1,0 +1,37 @@
+# Tasks: story-demo-lab (Phase 9)
+- [x] 1. Scenario library
+  - src/ui/sim.ts: demoCard, scenario, runPair, randomCase
+  - tests/roundtrip.test.ts: P2, P3 (and tests/pair.test.ts for verdicts, P5)
+  - _Requirements: R3.1–R3.3, R4.3_
+- [x] 2. Calibration logic
+  - src/vision/calibrate.ts: suggestCalibration, calibrationReport
+  - tests/roundtrip.test.ts: P1
+  - _Requirements: R5.1–R5.3, R5.7_
+- [x] 3. Story text
+  - src/i18n/story.ts: STORY_EN (9 chapters), STORY, storyFor
+  - tests/i18n.test.ts: P4
+  - _Requirements: R2.1, R8.1_
+- [x] 4. Home page
+  - src/ui/pages/Home.tsx: hero, buttons, chips, 3D tally card, steps, phone QR
+  - _Requirements: R1.1–R1.6_
+- [x] 5. Story page
+  - src/ui/pages/Story.tsx: embers, live scanner chapters 4–7, burning forgery, dots, keys, narration, voice, pace
+  - _Requirements: R2.2–R2.8_
+- [x] 6. Demo page
+  - src/ui/pages/Demo.tsx: scenario buttons, SimView, error state
+  - tests/pair.test.ts: P5
+  - _Requirements: R3.1–R3.4_
+- [x] 7. Test lab
+  - src/ui/pages/Lab.tsx: sliders, tamper buttons, stress test with Stop, print round-trip
+  - tests/roundtrip.test.ts: P3
+  - _Requirements: R4.1–R4.4_
+- [x] 8. Calibrate page
+  - src/ui/pages/Calibrate.tsx: photos, measurements, Apply, Reset, report download
+  - tests/roundtrip.test.ts: P1
+  - _Requirements: R5.1–R5.7_
+- [x] 9. Punch guide and About
+  - src/ui/pages/Punch.tsx (3D animation), src/ui/pages/About.tsx (protections and §6.12 limits)
+  - _Requirements: R6.1, R7.1_
+- [x] 10. Screenshots at 1280px and 375px
+  - docs/screenshots/{home,story,demo,lab,calibrate,punch,about}-{1280,375}.png
+  - _Requirements: R1–R7 (visual check)_

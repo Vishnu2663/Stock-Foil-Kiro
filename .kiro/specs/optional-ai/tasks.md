@@ -1,0 +1,27 @@
+# Tasks: optional-ai (Phase 11)
+- [x] 1. Facts, anonymise and prompt
+  - src/ai/index.ts: PayFacts, anonymise, buildPrompt
+  - tests/ai.test.ts: P1
+  - _Requirements: R3.1–R3.3_
+- [x] 2. Offline explanation
+  - sumLine, offlineExplain with EXPLAIN templates per language
+  - tests/ai.test.ts: P2
+  - _Requirements: R2.1, R2.2_
+- [x] 3. Providers
+  - askAI: off, built-in Prompt API, custom OpenAI-compatible with https check and timeouts
+  - tests/ai.test.ts: P3, P4
+  - _Requirements: R1.1–R1.3, R1.6, R1.7, R2.6_
+- [x] 4. Explain with fallback
+  - explain: AI text plus appended offline text, note, fallback on any error
+  - tests/ai.test.ts: P3, P4
+  - _Requirements: R2.3–R2.5_
+- [x] 5. Interface translation
+  - translateStrings in chunks of 40 with placeholder filter, saved under sf.pack.<code>
+  - tests/i18n.test.ts: P4 (template translation of the saved packs)
+  - _Requirements: R4.1–R4.4_
+- [x] 6. Presets
+  - PRESETS: OpenRouter free, Groq, Gemini, each labelled unverified in Settings
+  - _Requirements: R1.4_
+- [x] 7. Settings page
+  - src/ui/pages/Settings.tsx: language, pictures-and-voice, speed, AI controls, calibration reset, clear data
+  - _Requirements: R1.3, R1.5, R2.4, R4.1, R5.1_
