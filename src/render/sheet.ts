@@ -148,11 +148,11 @@ export function halfSvg(spec: CardSpec, role: Role, opts: HalfOptions = {}): str
   // right panel: card code, rate, paired
   const px = 134, pw = 44, mid = px + pw / 2;
   p.push(box(px, 55, pw, 13));
-  p.push(`<text x="${mid}" y="59.3" font-size="1.9" letter-spacing="0.5" text-anchor="middle" fill="${C.soft}">CARD</text>`);
+  p.push(`<text x="${mid}" y="59.3" font-size="2.2" letter-spacing="0.5" text-anchor="middle" fill="${C.soft}">CARD</text>`);
   p.push(`<text x="${mid}" y="65" font-size="4" font-weight="700" letter-spacing="0.3" text-anchor="middle" fill="${C.ink}">№ ${esc(code)}</text>`);
   p.push(box(px, 70.5, pw, 13));
   p.push(`<text x="${mid}" y="77" font-size="4" font-weight="700" text-anchor="middle" fill="${C.ink}">${money(spec.rateMinor)}<tspan font-size="2.4" font-weight="400" font-style="italic" fill="${C.soft}"> / day</tspan></text>`);
-  p.push(`<text x="${mid}" y="81.2" font-size="1.9" text-anchor="middle" fill="${C.soft}">advance token ${money(spec.advMinor)}</text>`);
+  p.push(`<text x="${mid}" y="81.2" font-size="2.2" text-anchor="middle" fill="${C.soft}">advance token ${money(spec.advMinor)}</text>`);
   if (spec.pairing) {
     p.push(box(px, 86, pw, 9));
     p.push(`<text x="${mid}" y="91.6" font-size="2.6" font-weight="700" text-anchor="middle" fill="${C.green}">✓ Paired card</text>`);
@@ -164,7 +164,7 @@ export function halfSvg(spec: CardSpec, role: Role, opts: HalfOptions = {}): str
   const notes: string[] = [];
   if (spec.halves) notes.push('Two circles per day: left = first half, right = second half. Both = full day.');
   if (spec.carryMinor !== 0) notes.push(`Carried from last month: ${formatMoney(spec.carryMinor, spec.currency)}`);
-  if (notes.length) p.push(`<text x="${right}" y="${fy}" font-size="${spec.carryMinor !== 0 ? 1.8 : 1.3}" text-anchor="end" fill="${C.ink}">${esc(notes.join(' · '))}</text>`);
+  if (notes.length) p.push(`<text x="${right}" y="${fy}" font-size="${spec.carryMinor !== 0 ? 1.8 : 1.45}" text-anchor="end" fill="${C.ink}">${esc(notes.join(' · '))}</text>`);
   return `<g font-family="${MONO}" fill="${C.ink}">${p.join('')}</g>`;
 }
 

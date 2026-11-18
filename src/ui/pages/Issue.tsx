@@ -100,7 +100,7 @@ export default function Issue() {
     <div className="stack">
       <h1>New tally card</h1>
       {editId && <div className="note">{t('Editing card {0}. Saving creates a revised card with a new id, cut and pairing code, which replaces the old one.', editId)}{edit ? '' : ''}</div>}
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2 issue-grid" style={{ alignItems: 'start' }}>
         <form className="panel stack issue-form" onSubmit={(e) => { e.preventDefault(); if (save()) printHTML(svg, 'sheet'); }}>
           <SectionHead n={1} title={t('Who is this card for?')} />
           <Field label={t('Worker name')}><input value={form.worker} onChange={(e) => set('worker', e.target.value)} maxLength={18} autoComplete="off" placeholder="e.g. Ramesh" /></Field>

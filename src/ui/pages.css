@@ -270,3 +270,11 @@ body.lite .flip-tile:hover:not(.flipped) .flip-inner { transform: none; }
 .cam-flash { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); padding: 10px 16px; border-radius: 12px; background: rgba(18, 64, 38, .92); border: 1px solid #2fbf71; color: #eafbf1; font: 800 15px/1.2 var(--sans); animation: ccIn .35s cubic-bezier(.2, .8, .2, 1) both; }
 .cam-wrap .cam-tools { z-index: 3; }
 @media (max-width: 560px) { .cam-wrap .cam-video-box .cam-status { font-size: 13px; padding: 8px 10px; } }
+
+/* New card: the live sheet preview gets most of the width so its print is readable */
+@media (min-width: 861px) {
+  .issue-grid { grid-template-columns: minmax(300px, .78fr) minmax(0, 1.22fr); }
+}
+main:has(.issue-grid) { max-width: 1320px; }
+.sheet-col { position: sticky; top: 84px; }
+@media (max-width: 860px) { .sheet-col { position: static; } }
