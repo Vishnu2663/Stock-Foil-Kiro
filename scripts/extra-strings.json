@@ -1,0 +1,26 @@
+{
+  "_about": "Strings the AST walk cannot see: check details built in src/vision/pair.ts, and formula templates.",
+  "strings": [
+    "Found",
+    "Not found yet",
+    "This half says it is the employer half",
+    "This half says it is the worker half",
+    "Verified: issued together",
+    "Failed: these halves were not issued together",
+    "No pairing code: the cut decides",
+    "Fits (score {0})",
+    "Does not fit (score {0})",
+    "Not clear (score {0})",
+    "extra evidence",
+    "optional on disc cards",
+    "All match",
+    "{0} one-sided",
+    "{0} unsure",
+    "{0} holes line up",
+    "{0} hole(s) look punched separately",
+    "Fewer than 4 shared holes: not checked",
+    "{0} of 4 corner squares",
+    "{0} days",
+    "{0} full days + {1} half days = {2} days"
+  ]
+}
