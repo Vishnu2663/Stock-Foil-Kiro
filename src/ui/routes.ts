@@ -49,3 +49,6 @@ export function parseSplash(search: string): number {
 
 /** The phone tab bar: Home · New card · Payday scan · Members · More. */
 export const TABS: RouteId[] = ['home', 'issue', 'scan', 'members'];
+
+/** Set by Settings → "Scan another": the scan page opens fully reset (halves, overrides, result). */
+export const SCAN_RESET = 'sf.scanReset';

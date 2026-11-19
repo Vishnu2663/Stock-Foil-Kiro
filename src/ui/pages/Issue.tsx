@@ -12,6 +12,7 @@ import { loadCards, upsertCard, readJSON, removeKey, KEYS, loadLedger, download 
 import { carryForward } from '../../core/settlement';
 import { printHTML, sheetsToPdf } from '../imageIO';
 import { UI_LANGS } from '../../i18n/index';
+import { Select } from '../components/Select';
 
 const major = (minor: number) => (minor / 100).toFixed(2).replace(/\.00$/, '');
 
@@ -114,7 +115,7 @@ export default function Issue() {
           <div className="grid cols-2">
             <MonthPicker year={form.year} month={form.month} onChange={(y, m) => { setForm((x) => ({ ...x, year: y, month: m })); setSaved(null); }} />
             <Field label={t('Currency')}>
-              <select value={form.currency} onChange={(e) => set('currency', e.target.value)}>{CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+              <Select label={t('Currency')} value={form.currency} onChange={(v) => set('currency', v)} options={CURRENCIES} />
             </Field>
             <Field label={t('Daily wage')} hint={t('Up to 2,000')}><input inputMode="decimal" value={form.rate} onChange={(e) => set('rate', e.target.value)} onBlur={() => snap('rate')} /></Field>
             <Field label={t('One advance token is worth')} hint={t('Up to 2,000')}><input inputMode="decimal" value={form.adv} onChange={(e) => set('adv', e.target.value)} onBlur={() => snap('adv')} /></Field>
@@ -133,7 +134,7 @@ export default function Issue() {
           <OptionCard checked={form.halves} onChange={(v) => set('halves', v)} title={t('Half-day circles')} badge={t('two per date')} text={t('Every date gets two punch circles: left for the first half, right for the second. One circle is half a day’s wage, both is a full day, so a half day can be recorded and scanned without doubt.')} />
           <OptionCard checked={form.discs} onChange={(v) => set('discs', v)} title={t('Printed grey discs')} badge={t('any table')} text={t('A grey disc is printed in every circle, and punching removes it. The card can then be photographed on any plain surface, not only a dark cloth.')} />
           <Field label={t('Language on the card and slip')}>
-            <select value={form.lang} onChange={(e) => set('lang', e.target.value)}>{UI_LANGS.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select>
+            <Select label={t('Language')} value={form.lang} onChange={(v) => set('lang', v)} options={UI_LANGS.map((l) => ({ value: l.code, label: l.name }))} />
           </Field>
           <div className="note">💡 {t('Advances: a worker takes cash early → punch one of the 10 token spots on both halves. Each is worth the token amount above.')}</div>
           <button className="btn primary big" type="submit">🖨️ {t('Print & save')}</button>

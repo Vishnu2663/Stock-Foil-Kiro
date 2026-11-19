@@ -10,6 +10,7 @@ import { sheetSvg } from '../../render/sheet';
 import { sheetBitmap } from '../imageIO';
 import { roundTrip } from '../scanAsync';
 import { verifyPair, pickHalves } from '../../vision/pair';
+import { Select } from '../components/Select';
 
 type Tamper = 'none' | 'extra' | 'covered' | 'separate' | 'forgedCut' | 'rate' | 'foreign';
 
@@ -118,7 +119,7 @@ export default function Lab() {
           <Field label={t('Days punched (1–30)')}><input value={days} onChange={(e) => setDays(e.target.value)} /></Field>
           <Field label={t('Balance brought forward (negative = worker owes)')}><input inputMode="decimal" value={carry} onChange={(e) => setCarry(e.target.value)} /></Field>
           <Field label={t('Tampering')} hint={t(tp.hint)}>
-            <select value={tamper} onChange={(e) => setTamper(e.target.value as Tamper)}>{TAMPERS.map((x) => <option key={x.id} value={x.id}>{t(x.label)}</option>)}</select>
+            <Select label={t('Tamper')} value={tamper} onChange={(v) => setTamper(v as Tamper)} options={TAMPERS.map((x) => ({ value: x.id, label: t(x.label) }))} />
           </Field>
           <h3>Camera conditions</h3>
           {SLIDERS.map((s) => (

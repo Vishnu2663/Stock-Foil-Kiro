@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Keyboar
 import { ROUTES, type RouteId } from '../routes';
 import { Icon } from './Icon';
 import { Brand } from './Brand';
+import { Popover } from './Popover';
 
 const MAIN = ROUTES.filter((r) => r.group === 'main');
 const RECORDS = ROUTES.filter((r) => r.group === 'records');
@@ -10,37 +11,19 @@ const MORE = ROUTES.filter((r) => r.group === 'more');
 function Menu({ id, label, items, route, open, setOpen }: {
   id: string; label: string; items: typeof ROUTES; route: RouteId; open: boolean; setOpen: (v: string | null) => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
   const active = items.some((i) => i.id === route);
-  const focusItem = (i: number) => {
-    const links = ref.current?.querySelectorAll<HTMLAnchorElement>('[role="menuitem"]');
-    if (!links?.length) return;
-    links[(i + links.length) % links.length].focus();
-  };
+  const focusItem = (last: boolean) => requestAnimationFrame(() => {
+    const links = document.querySelectorAll<HTMLAnchorElement>(`#menu-${id} [role="menuitem"]`);
+    links[last ? links.length - 1 : 0]?.focus();
+  });
   const onKeyBtn = (e: KeyboardEvent) => {
-    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      setOpen(id);
-      requestAnimationFrame(() => focusItem(0));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setOpen(id);
-      requestAnimationFrame(() => focusItem(-1));
-    }
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(id); focusItem(false); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setOpen(id); focusItem(true); }
   };
-  const onKeyMenu = (e: KeyboardEvent) => {
-    const links = [...(ref.current?.querySelectorAll<HTMLAnchorElement>('[role="menuitem"]') ?? [])];
-    const i = links.indexOf(document.activeElement as HTMLAnchorElement);
-    if (e.key === 'ArrowDown') { e.preventDefault(); focusItem(i + 1); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); focusItem(i - 1); }
-    else if (e.key === 'Home') { e.preventDefault(); focusItem(0); }
-    else if (e.key === 'End') { e.preventDefault(); focusItem(-1); }
-    else if (e.key === 'Escape') { e.preventDefault(); setOpen(null); btn.current?.focus(); }
-    else if (e.key === 'Tab') setOpen(null);
-  };
+  const close = useCallback(() => setOpen(null), [setOpen]);
   return (
-    <div className="menu-wrap" ref={ref} data-nav={id}>
+    <div className="menu-wrap" data-nav={id}>
       <button
         ref={btn}
         className={'nav-item' + (active ? ' active' : '')}
@@ -54,17 +37,15 @@ function Menu({ id, label, items, route, open, setOpen }: {
         <span>{label}</span>
         <Icon name="down" className="caret" />
       </button>
-      {open && (
-        <div className="menu" role="menu" id={`menu-${id}`} aria-label={label} onKeyDown={onKeyMenu}>
-          {items.map((r) => (
-            <a key={r.id} role="menuitem" href={`#/${r.id}`} className={r.id === route ? 'active' : ''} onClick={() => setOpen(null)}>
-              <span className="tile"><Icon name={r.icon} /></span>
-              <span><b>{r.title}</b><small>{r.hint}</small></span>
-              <Icon name="chevron" className="chev" />
-            </a>
-          ))}
-        </div>
-      )}
+      <Popover open={open} onClose={close} anchor={btn} label={label} id={`menu-${id}`} className="nav-pop">
+        {items.map((r, i) => (
+          <a key={r.id} role="menuitem" href={`#/${r.id}`} className={r.id === route ? 'active' : ''} style={{ ['--i' as string]: i }} onClick={close} onKeyDown={(e) => { if (e.key === 'Tab') close(); }}>
+            <span className="tile"><Icon name={r.icon} /></span>
+            <span><b>{r.title}</b><small>{r.hint}</small></span>
+            <Icon name="chevron" className="chev" />
+          </a>
+        ))}
+      </Popover>
     </div>
   );
 }
@@ -105,16 +86,6 @@ export function Header({ route }: { route: RouteId }) {
     ro.observe(n);
     return () => ro.disconnect();
   }, [movePill, activeEl]);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: PointerEvent) => {
-      if (!(e.target as Element).closest?.(`[data-nav="${open}"]`)) setOpen(null);
-    };
-    const esc = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setOpen(null); };
-    document.addEventListener('pointerdown', close);
-    document.addEventListener('keydown', esc);
-    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', esc); };
-  }, [open]);
   useEffect(() => setOpen(null), [route]);
 
   return (
@@ -148,7 +119,6 @@ export function Header({ route }: { route: RouteId }) {
           <Icon name="gear" /> <span>Settings</span>
         </a>
         <div className="phone-actions phone-only">
-          <a className="sq-scan" href="#/scan" aria-label="Payday scan"><Icon name="scan" /></a>
           <a className="gear-btn" href="#/settings" aria-label="Settings"><Icon name="gear" /></a>
         </div>
       </div>

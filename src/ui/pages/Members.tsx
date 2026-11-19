@@ -12,6 +12,8 @@ import { cleanName, clampAmount, parseMajor, CURRENCIES, formatMoney, MONTH_NAME
 import { sheetSvg } from '../../render/sheet';
 import { sheetsToPdf } from '../imageIO';
 import { UI_LANGS } from '../../i18n/index';
+import { Select } from '../components/Select';
+import { Empty } from '../components/Empty';
 
 const blank = { name: '', employer: '', rate: '500', adv: '100', currency: 'INR', lang: 'en', halves: false, discs: false };
 
@@ -118,8 +120,8 @@ export default function Members() {
             <Field label={t('Daily wage')}><input inputMode="decimal" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} /></Field>
             <Field label={t('Advance token value')}><input inputMode="decimal" value={form.adv} onChange={(e) => setForm({ ...form, adv: e.target.value })} /></Field>
             {editing && <Field label={t('From which date?')} hint={t('The new wage applies from this date. Earlier days keep the old wage.')}><input type="date" value={wageFrom} onChange={(e) => setWageFrom(e.target.value)} /></Field>}
-            <Field label={t('Currency')}><select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
-            <Field label={t('Language')}><select value={form.lang} onChange={(e) => setForm({ ...form, lang: e.target.value })}>{UI_LANGS.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select></Field>
+            <Field label={t('Currency')}><Select label={t('Currency')} value={form.currency} onChange={(v) => setForm({ ...form, currency: v })} options={CURRENCIES} /></Field>
+            <Field label={t('Language')}><Select label={t('Language')} value={form.lang} onChange={(v) => setForm({ ...form, lang: v })} options={UI_LANGS.map((l) => ({ value: l.code, label: l.name }))} /></Field>
           </div>
           <Switch checked={form.halves} onChange={(v) => setForm({ ...form, halves: v })} label={t('Half-day circles')} />
           <Switch checked={form.discs} onChange={(v) => setForm({ ...form, discs: v })} label={t('Printed grey discs')} />
@@ -138,7 +140,7 @@ export default function Members() {
       </div>
       <div className="panel">
         <h2>All members</h2>
-        {members.length === 0 ? <p className="muted">No members yet. Add the first one above.</p> : (
+        {members.length === 0 ? <Empty>No members yet. Add the first one above.</Empty> : (
           <div className="table-wrap">
             <table className="table stackable">
               <thead><tr><th>Name</th><th>Employer</th><th className="num">Wage</th><th className="num">Advance</th><th>Language</th><th className="num">Cards</th><th className="num">This month</th><th>Actions</th></tr></thead>

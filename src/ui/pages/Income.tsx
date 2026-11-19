@@ -9,6 +9,8 @@ import { normName } from '../../core/members';
 import { formatMoney, MONTH_NAMES } from '../../core/card';
 import type { Receipt } from '../../core/history';
 import { printHTML } from '../imageIO';
+import { Select } from '../components/Select';
+import { Empty } from '../components/Empty';
 
 export default function Income() {
   const { t, toast } = useApp();
@@ -52,11 +54,9 @@ export default function Income() {
       <h1>Income proof</h1>
       <p className="lead">A one-page certificate of verified work and pay for a loan or rent, backed by the hash-chained ledger.</p>
       <div className="panel stack">
-        {people.length === 0 ? <p className="muted">No verified scans yet. The certificate uses genuine scans from the ledger on this device.</p> : (
+        {people.length === 0 ? <Empty action={<a className="btn primary" href="#/scan">📷 Payday scan</a>}>No verified scans yet. The certificate uses genuine scans from the ledger on this device.</Empty> : (
           <Field label={t('Worker')}>
-            <select value={who} onChange={(e) => setWho(e.target.value)}>
-              {people.map(([k, p]) => <option key={k} value={k}>{p.worker} · {p.employer}</option>)}
-            </select>
+            <Select label={t('Person')} value={who} onChange={setWho} options={people.map(([k, p]) => ({ value: k, label: `${p.worker} · ${p.employer}` }))} />
           </Field>
         )}
         {cert && (
