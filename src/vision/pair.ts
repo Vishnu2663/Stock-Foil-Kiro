@@ -6,6 +6,7 @@ import { compareSets, threeViews, type Comparison, type PayTerms, type RateChang
 import { punchSets, EDGE_XS, type HalfScan } from './detect';
 import { makeWave } from '../core/wave';
 import type { Verdict } from '../core/history';
+import { markState, markText, type MarkState } from '../core/received';
 
 // ---------------- edge match ----------------
 
@@ -20,6 +21,24 @@ export interface EdgeMatch {
   /** each edge against the card's own designed wave (NaN when undefined) */
   cDesignStock: number;
   cDesignFoil: number;
+  /** spread of each edge around the designed wave, mm */
+  rmsDesignStock: number;
+  rmsDesignFoil: number;
+  /** how the status was reached: the two edges against each other, or each half against the card's wave */
+  via: 'pair' | 'design';
+  /** a half whose own cut clearly does not follow the card's wave */
+  offHalf?: 'S' | 'F';
+}
+
+/** Each half on its own fits the designed wave when c ≥ 0.85 and rms ≤ 1.0 mm over ≥ 40% of the edge; clearly off when c < 0.6 over ≥ 60%. */
+export const DESIGN = { c: 0.85, rms: 1.0, off: 0.6, coverage: 0.4, offCoverage: 0.6 };
+
+function spread(a: number[], b: number[]): number {
+  const n = a.length;
+  if (!n) return NaN;
+  const d = a.map((v, i) => v - b[i]);
+  const md = d.reduce((s, v) => s + v, 0) / n;
+  return Math.sqrt(d.reduce((s, v) => s + (v - md) ** 2, 0) / n);
 }
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
@@ -53,7 +72,20 @@ export function edgeMatch(stock: number[], foil: number[], waveId?: string): Edg
   const n = a.length;
   const coverage = total ? n / total : 0;
   const cDesignStock = corr(sAll, dS), cDesignFoil = corr(fAll, dF);
-  if (n < 3) return { status: 'inconclusive', coverage, rms: NaN, c: NaN, score: 0, n, cDesignStock, cDesignFoil };
+  const rmsDesignStock = spread(sAll, dS), rmsDesignFoil = spread(fAll, dF);
+  const design = { cDesignStock, cDesignFoil, rmsDesignStock, rmsDesignFoil };
+  // each half against the card's own designed wave (photos taken separately count too)
+  const covS = total ? sAll.length / total : 0, covF = total ? fAll.length / total : 0;
+  const fits = (c: number, r: number, cov: number) => cov >= DESIGN.coverage && c >= DESIGN.c && r <= DESIGN.rms;
+  // "clearly off" needs most of that half's edge seen, so a partly hidden edge never names a half as forged
+  const off = (c: number, cov: number) => cov >= DESIGN.offCoverage && Number.isFinite(c) && c < DESIGN.off;
+  const offHalf: 'S' | 'F' | undefined = wave ? (off(cDesignStock, covS) ? 'S' : off(cDesignFoil, covF) ? 'F' : undefined) : undefined;
+  const designOk = !!wave && fits(cDesignStock, rmsDesignStock, covS) && fits(cDesignFoil, rmsDesignFoil, covF);
+  const byDesign = (base: Omit<EdgeMatch, 'status' | 'via' | 'offHalf' | keyof typeof design>): EdgeMatch =>
+    offHalf ? { ...base, ...design, status: 'mismatch', via: 'design', offHalf }
+      : designOk ? { ...base, ...design, status: 'match', via: 'design' }
+      : { ...base, ...design, status: 'inconclusive', via: 'pair' };
+  if (n < 3) return byDesign({ coverage, rms: NaN, c: NaN, score: 0, n });
   const d = a.map((v, i) => v - b[i]);
   const md = d.reduce((s, v) => s + v, 0) / n;
   const rms = Math.sqrt(d.reduce((s, v) => s + (v - md) ** 2, 0) / n);
@@ -64,7 +96,8 @@ export function edgeMatch(stock: number[], foil: number[], waveId?: string): Edg
     else if (rms > 1.5 || c < 0.75) status = 'mismatch';
   }
   const score = Number.isFinite(c) ? clamp01((c - 0.3) / 0.65) * clamp01((2.5 - rms) / 2) * 100 : 0;
-  return { status, coverage, rms, c, score, n, cDesignStock, cDesignFoil };
+  if (status === 'inconclusive') return byDesign({ coverage, rms, c, score, n });
+  return { status, coverage, rms, c, score, n, ...design, via: 'pair', ...(status === 'mismatch' && offHalf ? { offHalf } : {}) };
 }
 
 // ---------------- alignment (holes punched together) ----------------
@@ -178,6 +211,8 @@ export interface PairResult {
   /** cells punched on BOTH halves (alignment needs their hole centres, which may not be measurable) */
   sharedPunched: number;
   minFiducials: number;
+  /** the worker's received mark on the two halves */
+  mark?: MarkState | null;
 }
 
 export const VERDICT_LABEL: Record<Verdict, string> = {
@@ -230,7 +265,9 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
     const extra = pairing === 'verified';
     if (edge.status === 'match') edgeOk = true;
     else if (edge.status === 'mismatch') edgeOk = extra ? null : false;
-    edgeDetail = `${edge.status === 'match' ? 'Fits' : edge.status === 'mismatch' ? 'Does not fit' : 'Not clear'} (score ${Math.round(edge.score)})` +
+    edgeDetail = (edge.offHalf ? (edge.offHalf === 'S' ? "The worker half's cut does not match the card" : "The employer half's cut does not match the card")
+      : edge.via === 'design' ? 'Each half fits the card\'s wave'
+      : `${edge.status === 'match' ? 'Fits' : edge.status === 'mismatch' ? 'Does not fit' : 'Not clear'} (score ${Math.round(edge.score)})`) +
       (extra ? ' · extra evidence' : '') + (discsPaired && edge.status !== 'match' ? ' · optional on disc cards' : '');
   }
   checks.push({ id: 'edge', label: 'Wavy cut lines fit', ok: edgeOk, detail: edgeDetail });
@@ -271,6 +308,9 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
   const minFiducials = Math.min(stock?.pose.fiducialsFound ?? 0, foil?.pose.fiducialsFound ?? 0);
   const poseOk = both && minFiducials >= 3;
   if (opts.wage?.adjusted) checks.push({ id: 'wage', label: 'Wage adjusted', ok: null, detail: opts.wage.source === 'current' ? 'Paid by the member\'s current wage, not the printed one' : 'Paid by a custom wage, not the printed one' });
+  // the worker's received mark (information only: it never changes the verdict)
+  const mark = both ? markState(!!stock!.decoded.spec.receiptBox && !!foil!.decoded.spec.receiptBox, stock!.receipt, foil!.receipt) : null;
+  if (mark) { const mt = markText(mark); checks.push({ id: 'receipt', label: 'Received mark', ok: mt.ok, detail: mt.arg ? mt.text.replace('{0}', mt.arg) : mt.text }); }
   checks.push({ id: 'photo', label: 'Photos sharp and complete enough', ok: both ? poseOk : null, detail: both ? `${minFiducials} of 4 corner squares` : '' });
 
   let verdict: Verdict;
@@ -280,7 +320,7 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
   else if (align!.flagged.length > 0) verdict = 'review';
   else if (edge!.status === 'inconclusive' && pairing === 'legacy') verdict = 'inconclusive';
   else verdict = 'genuine-consistent';
-  return { verdict, checks, pairing, edge, align, comparison, pay, spec, poseOk, pairOk, minFiducials, sharedPunched };
+  return { verdict, checks, pairing, edge, align, comparison, pay, spec, poseOk, pairOk, minFiducials, sharedPunched, mark };
 }
 
 /** Pick the worker and employer halves from many scanned photos. */

@@ -7,6 +7,7 @@ import { applyH, findAffine, solveHomography, localScale, type Hom, type Pt } fr
 import {
   FIDUCIALS, FID_SIZE, SAMPLE_R, targetsFor, PIECE_X0, PIECE_X1, STOCK_TOP, FOIL_BOTTOM, FRAME_W, FRAME_H, qrCorners,
 } from '../core/layout';
+import { readReceipt, minRG, type ReceiptRead } from './receipt';
 import { toGray, grayToRGBA, sample, boxBlur, unsharp, upscale2, median, type Gray, type RGBAImage } from './image';
 
 // ---------------- thresholds ----------------
@@ -21,13 +22,16 @@ export const T = {
   ambiguous: 0.26, // surface this close to the grey: holes cannot be told from discs
   contrast: 0.72, // background darker than 0.72 × paper: cut edge and holes are visible
   darkPhoto: 0.15, // paper at or below 0.15 (0..1): too dark
+  glareLum: 250, // a spot pixel this bright (0..255) is glare when the paper itself is darker
+  glareShare: 0.3, // more than this share of a spot's pixels in glare: unsure
+  glarePaper: 235, // glare only counts when the paper reference is below this (not an overexposed photo)
 };
 /** The unsure band for a punch threshold, scaled (not shifted) like the live scanner. */
 export const unsureBand = (punchRatio = T.punch): [number, number] => [punchRatio * T.unsureLoK, punchRatio * T.unsureHiK];
 
 export type WarningCode =
   | 'partial' | 'spots-hidden' | 'few-fiducials' | 'low-contrast' | 'dark-surface' | 'edge-surface' | 'ambiguous-surface'
-  | 'far' | 'blurry' | 'dark-photo' | 'edge-hidden';
+  | 'far' | 'blurry' | 'dark-photo' | 'edge-hidden' | 'glare';
 
 export const WARNING_TEXT: Record<WarningCode, string> = {
   partial: 'Part of the half is outside the photo. Show the whole half.',
@@ -41,6 +45,7 @@ export const WARNING_TEXT: Record<WarningCode, string> = {
   blurry: 'The photo is blurred or bent. Hold still and keep the card flat.',
   'dark-photo': 'The photo is too dark. Use more light.',
   'edge-hidden': 'Keep fingers off the wavy edge so it can be checked.',
+  glare: 'Glare on some spots: tilt the card a little to avoid the reflection.',
 };
 
 // ---------------- QR ----------------
@@ -95,7 +100,41 @@ function runJsQR(g: Gray, scale: number, maxHits: number, level: number): QRHit[
  * Corner coordinates are always in the original photo.
  */
 export const QR_LADDER = 7;
-export function findQRs(g: Gray, maxHits = 2, maxLevel = QR_LADDER - 1): QRHit[] {
+
+/** A rectangle of a grey image (whole pixels). */
+function cropGray(g: Gray, x0: number, y0: number, x1: number, y1: number): Gray {
+  const w = x1 - x0, h = y1 - y0, data = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) data.set(g.data.subarray((y0 + y) * g.width + x0, (y0 + y) * g.width + x1), y * w);
+  return { width: w, height: h, data };
+}
+
+/**
+ * Two halves in one picture ("Check the cut"): the finder patterns of both QR codes can confuse a whole-frame
+ * read, so bands of 45% and then 60% (top, bottom, left, right) are also read on their own. Hits are in the full photo.
+ */
+function findTwo(g: Gray, maxLevel: number, have: QRHit[]): QRHit[] {
+  const out = [...have];
+  const W = g.width, H = g.height;
+  const bands: [number, number, number, number][] = [];
+  for (const k of [0.45, 0.6]) bands.push(
+    [0, 0, W, Math.round(H * k)], [0, Math.round(H * (1 - k)), W, H], [0, 0, Math.round(W * k), H], [Math.round(W * (1 - k)), 0, W, H],
+  );
+  for (const [x0, y0, x1, y1] of bands) {
+    if (out.length >= 2) break;
+    const hits = findQRs(cropGray(g, x0, y0, x1, y1), 1, maxLevel);
+    for (const h of hits) {
+      if (out.some((o) => o.data === h.data)) continue;
+      out.push({ ...h, corners: h.corners.map(([x, y]) => [x + x0, y + y0] as Pt) });
+    }
+  }
+  return out;
+}
+
+export function findQRs(g: Gray, maxHits = 2, maxLevel = QR_LADDER - 1, two = false): QRHit[] {
+  if (two) {
+    const first = findQRs(g, 2, maxLevel);
+    return first.length >= 2 ? first : findTwo(g, maxLevel, first);
+  }
   let b1: Gray | undefined, u15: Gray | undefined, u3: Gray | undefined;
   const blur1 = () => (b1 ??= boxBlur(g, 1));
   const steps: [() => Gray, number][] = [
@@ -448,6 +487,19 @@ function discMean(g: Gray, H: Hom, cx: number, cy: number, r: number, step: numb
   return n && n >= total * 0.85 ? s / n : NaN;
 }
 
+/** Share of a disc's pixels brighter than T.glareLum (a reflection); 0 when the disc is not in the photo. */
+function glareShare(g: Gray, H: Hom, cx: number, cy: number, r: number, step: number): number {
+  let hi = 0, n = 0;
+  for (let dy = -r; dy <= r + 1e-9; dy += step) for (let dx = -r; dx <= r + 1e-9; dx += step) {
+    if (dx * dx + dy * dy > r * r) continue;
+    const v = sampleMm(g, H, cx + dx, cy + dy);
+    if (!Number.isFinite(v)) continue;
+    n++;
+    if (v > T.glareLum) hi++;
+  }
+  return n ? hi / n : 0;
+}
+
 /**
  * Hole centre: flood-fill the dark region connected to the target inside a 6 mm disc, with the date number's
  * box masked out. The seed must lie within 2.2 mm of the target and the hole must cover at least 4 mm².
@@ -522,7 +574,10 @@ export function readPunches(g: Gray, H: Hom, spec: CardSpec, role: Role, cal: Ca
   });
   const bgVals: number[] = [];
   for (let x = 10; x <= FRAME_W - 10; x += 6) bgVals.push(discMean(g, H, x, bgRowY(role), 0.8, 0.4));
-  const bgRef = median(bgVals.filter(Number.isFinite));
+  // the table just beyond the cut: the darker quarter, so the other half lying close by (Check the cut, 1 cm gap)
+  // does not count as table where its wavy edge reaches the sample row
+  const bgFin = bgVals.filter(Number.isFinite).sort((a, b) => a - b);
+  const bgRef = bgFin.length ? bgFin[Math.floor((bgFin.length - 1) * 0.25)] : NaN;
   if (!(paperRef / 255 > T.darkPhoto)) warnings.add('dark-photo');
   if (measured.some((m) => !Number.isFinite(m.ratio))) warnings.add('spots-hidden');
   const contrastOk = Number.isFinite(bgRef) && bgRef < paperRef * T.contrast;
@@ -551,6 +606,8 @@ export function readPunches(g: Gray, H: Hom, spec: CardSpec, role: Role, cal: Ca
       }
     }
     if (ambiguousSurface) unsure = true;
+    // a reflection over a spot hides a hole as white paper: never trust it
+    if (!unseen && paperRef < T.glarePaper && glareShare(g, H, m.t.cx, m.t.cy, SAMPLE_R, step) > T.glareShare) { unsure = true; warnings.add('glare'); }
     const c: CellReading = { key: m.t.key, kind: m.t.kind, n: m.t.n, half: m.t.half, ratio: m.ratio, punched, unsure };
     if (punched) {
       const cell = m.t.cell;
@@ -572,13 +629,37 @@ export function readPunches(g: Gray, H: Hom, spec: CardSpec, role: Role, cal: Ca
 
 // ---------------- cut edge ----------------
 
-/** x positions (frame mm) where the cut edge is sampled: 4, 6, …, 182. */
-export const EDGE_XS: number[] = Array.from({ length: 90 }, (_, i) => 4 + i * 2);
+/** x positions (frame mm) where the cut edge is sampled: 4, 5, …, 182 (every 1 mm). */
+export const EDGE_XS: number[] = Array.from({ length: 179 }, (_, i) => 4 + i);
 
 /**
- * Trace the cut edge outward from the frame. Skipped entirely when paper/background contrast is poor.
- * At each x the first paper→background crossing counts only when it stays dark 1.2 mm further, so a
- * printed line is not taken for the edge. Offsets are from the nominal cut (stock 132, foil −12 mm).
+ * Drop outliers: samples further than 3 × the median absolute deviation (at least 0.12 mm) from a smoothed
+ * curve (running median of 7, then mean of 5) become NaN. Pure; used per frame and after the 5-frame median.
+ */
+export function cleanEdge(edge: number[]): number[] {
+  const n = edge.length;
+  const med: number[] = edge.map((_, i) => {
+    const w = edge.slice(Math.max(0, i - 3), Math.min(n, i + 4)).filter(Number.isFinite);
+    return w.length >= 3 ? median(w) : NaN;
+  });
+  const smooth = med.map((_, i) => {
+    const w = med.slice(Math.max(0, i - 2), Math.min(n, i + 3)).filter(Number.isFinite);
+    return w.length ? w.reduce((p, v) => p + v, 0) / w.length : NaN;
+  });
+  const res = edge.map((v, i) => (Number.isFinite(v) && Number.isFinite(smooth[i]) ? v - smooth[i] : NaN));
+  const fin = res.filter(Number.isFinite);
+  if (fin.length < 5) return edge.map((v, i) => (Number.isFinite(smooth[i]) ? v : NaN));
+  const m = median(fin);
+  const mad = Math.max(0.12, median(fin.map((r) => Math.abs(r - m))));
+  return edge.map((v, i) => (Number.isFinite(res[i]) && Math.abs(res[i] - m) <= 3 * mad ? v : NaN));
+}
+
+/**
+ * Trace the cut edge outward from the frame, every 1 mm. Skipped entirely when paper/background contrast is
+ * poor. Along each line the paper→background step must stay dark for 2 mm (so a printed line or the dotted
+ * cut guide is not taken for the edge) and its local contrast must be at least 45% of paper − background;
+ * its position is the steepest-gradient sample refined with a parabola (sub-pixel). Outliers are then dropped.
+ * Offsets are from the nominal cut (stock 132, foil −12 mm).
  */
 export function traceEdge(g: Gray, H: Hom, role: Role, paperRef: number, bgRef: number, contrastOk: boolean): { edge: number[]; coverage: number } {
   const stock = role === 'S';
@@ -586,29 +667,63 @@ export function traceEdge(g: Gray, H: Hom, role: Role, paperRef: number, bgRef: 
   const t1 = stock ? FRAME_H + 12 + 5 + 4 : -(12 + 5 + 4);
   const dir = stock ? 1 : -1;
   const ppm = localScale(H, FRAME_W / 2, FRAME_H / 2);
-  const tStep = Math.max(0.15, Math.min(0.35, 0.5 / ppm));
-  const edge = EDGE_XS.map((x) => {
+  const tStep = Math.max(0.1, Math.min(0.3, 0.4 / ppm));
+  const stay = Math.ceil(2 / tStep);
+  const win = Math.max(2, Math.round(0.8 / tStep));
+  const raw = EDGE_XS.map((x) => {
     if (!contrastOk) return NaN;
     const local = discMean(g, H, x, t0, 0.8, 0.4);
     const pRef = Number.isFinite(local) && local > bgRef ? local : paperRef;
-    const thr = bgRef + 0.5 * (pRef - bgRef);
-    let prev = sampleMm(g, H, x, t0);
-    for (let t = t0 + dir * tStep; dir * (t1 - t) >= 0; t += dir * tStep) {
+    const span = pRef - bgRef;
+    if (!(span > 0)) return NaN;
+    const thr = bgRef + 0.5 * span;
+    const ts: number[] = [], vs: number[] = [];
+    for (let t = t0; dir * (t1 + dir * 2.4 - t) >= 0; t += dir * tStep) {
       const v = sampleMm(g, H, x, t);
       if (!Number.isFinite(v)) break;
-      if (v < thr && prev >= thr) {
-        const v2 = sampleMm(g, H, x, t + dir * 1.2);
-        if (v2 < thr) {
-          const frac = (prev - thr) / Math.max(1e-6, prev - v);
-          const found = t - dir * tStep * (1 - frac);
-          return stock ? found - (FRAME_H + 12) : found + 12;
-        }
+      ts.push(t); vs.push(v);
+    }
+    for (let i = 1; i < vs.length; i++) {
+      if (!(vs[i] < thr && vs[i - 1] >= thr) || dir * (ts[i] - t1) > 0) continue;
+      if (i + stay >= vs.length) return NaN; // the line leaves the photo: cannot confirm
+      let dark = true;
+      for (let k = i; k <= i + stay; k++) if (vs[k] >= thr) { dark = false; break; }
+      if (!dark) continue; // a printed line or a guide dot: paper resumes
+      const kb = Math.max(0, i - Math.round(1.2 / tStep)), ka = Math.min(vs.length - 1, i + Math.round(1.2 / tStep));
+      if (!(vs[kb] - vs[ka] >= 0.45 * span)) return NaN; // local-contrast mask
+      if (!(vs[kb] >= bgRef + 0.75 * span)) return NaN; // the near side must be paper, not a finger or a shadow over it
+      // steepest descent near the crossing, refined with a parabola through the three gradient samples
+      const grad = (k: number) => vs[k + 1] - vs[k - 1];
+      let best = -1, bv = 0;
+      for (let k = Math.max(1, i - win); k <= Math.min(vs.length - 2, i + win); k++) { const d = grad(k); if (d < bv) { bv = d; best = k; } }
+      let pos: number;
+      if (best >= 2 && best <= vs.length - 3) {
+        const gm = grad(best - 1), g0 = grad(best), gp = grad(best + 1);
+        const den = gm - 2 * g0 + gp;
+        const off = Math.abs(den) > 1e-6 ? Math.max(-0.5, Math.min(0.5, (0.5 * (gm - gp)) / den)) : 0;
+        pos = ts[best] + dir * tStep * off;
+      } else {
+        const frac = (vs[i - 1] - thr) / Math.max(1e-6, vs[i - 1] - vs[i]);
+        pos = ts[i] - dir * tStep * (1 - frac);
       }
-      prev = v;
+      return stock ? pos - (FRAME_H + 12) : pos + 12;
     }
     return NaN;
   });
+  const edge = cleanEdge(raw);
   return { edge, coverage: edge.filter(Number.isFinite).length / edge.length };
+}
+
+/** Per-sample median over several frames' edges (the last 5 good ones); NaN where fewer than half saw it. */
+export function medianEdges(edges: number[][]): number[] {
+  if (!edges.length) return [];
+  const n = edges[0].length;
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const v = edges.map((e) => e[i]).filter(Number.isFinite);
+    out.push(v.length * 2 >= edges.length && v.length ? median(v) : NaN);
+  }
+  return cleanEdge(out);
 }
 
 // ---------------- the whole half ----------------
@@ -622,18 +737,22 @@ export interface HalfScan {
   edgeCoverage: number;
   paperRef: number;
   bgRef: number;
+  /** the table beside the paper (left and right of the piece); NaN when not in the photo */
+  sideRef: number;
   grey?: number;
   ambiguousSurface: boolean;
   warnings: WarningCode[];
   outline: Pt[]; // printed frame corners in image px (TL, TR, BR, BL)
+  /** the worker's received mark in the RECEIVED box (cards printed with one); read separately from everything else */
+  receipt?: ReceiptRead;
 }
 
 /** squaresSeen: when no QR decodes, how many corner-square-like blobs are in view (a card too small or blurred to read). */
 export interface ScanResult { width: number; height: number; halves: HalfScan[]; foreign: string[]; invalid: string[]; ms: number; squaresSeen?: number }
 
-export interface ScanOptions { calibration?: Calibration; maxQrLevel?: number; maxHits?: number }
+export interface ScanOptions { calibration?: Calibration; maxQrLevel?: number; maxHits?: number; /** both halves are expected in this one picture (join mode) */ pair?: boolean }
 
-export function scanHalf(g: Gray, qr: QRHit, decoded: DecodedHalf, opts: ScanOptions = {}): HalfScan | null {
+export function scanHalf(g: Gray, qr: QRHit, decoded: DecodedHalf, opts: ScanOptions = {}, inkChannel?: () => Gray): HalfScan | null {
   const pose = estimatePose(g, qr);
   if (!pose) return null;
   const { spec, role } = decoded;
@@ -652,14 +771,19 @@ export function scanHalf(g: Gray, qr: QRHit, decoded: DecodedHalf, opts: ScanOpt
   // Information only: the paper margin is often outside the photo when the card fills the frame.
   if (piece.some(([x, y]) => x < -2 || y < -2 || x > g.width + 2 || y > g.height + 2)) warnings.add('partial');
   const outline = ([[0, 0], [FRAME_W, 0], [FRAME_W, FRAME_H], [0, FRAME_H]] as Pt[]).map(([x, y]) => applyH(pose.H, x, y));
+  const side: number[] = [];
+  for (const y of [20, 50, 80, 110]) for (const x of [PIECE_X0 - 6, PIECE_X1 + 6]) side.push(discMean(g, pose.H, x, y, 1, 0.5));
+  const sideRef = median(side.filter(Number.isFinite));
+  const receipt = spec.receiptBox ? readReceipt(inkChannel ? inkChannel() : g, pose.H, { blurry: warnings.has('blurry') }) : undefined;
   return {
-    decoded, qr, pose, cells: pr.cells, edge, edgeCoverage: coverage, paperRef: pr.paperRef, bgRef: pr.bgRef,
+    ...(receipt ? { receipt } : {}),
+    decoded, qr, pose, cells: pr.cells, edge, edgeCoverage: coverage, paperRef: pr.paperRef, bgRef: pr.bgRef, sideRef,
     grey: pr.grey, ambiguousSurface: pr.ambiguousSurface, warnings: [...warnings], outline,
   };
 }
 
-export function scanGray(g: Gray, opts: ScanOptions = {}): Omit<ScanResult, 'ms'> {
-  const hits = findQRs(g, opts.maxHits ?? 2, opts.maxQrLevel ?? QR_LADDER - 1);
+export function scanGray(g: Gray, opts: ScanOptions = {}, inkChannel?: () => Gray): Omit<ScanResult, 'ms'> {
+  const hits = findQRs(g, opts.maxHits ?? 2, opts.maxQrLevel ?? QR_LADDER - 1, !!opts.pair);
   const halves: HalfScan[] = [];
   const foreign: string[] = [];
   const invalid: string[] = [];
@@ -667,7 +791,7 @@ export function scanGray(g: Gray, opts: ScanOptions = {}): Omit<ScanResult, 'ms'
     if (!looksLikeOurs(h.data)) { foreign.push(h.data); continue; }
     const dec = decodePayload(h.data);
     if (!dec) { invalid.push(h.data); continue; }
-    const half = scanHalf(g, h, dec, opts);
+    const half = scanHalf(g, h, dec, opts, inkChannel);
     if (half) halves.push(half);
   }
   const squaresSeen = hits.length ? undefined : detectSquares(g).length;
@@ -676,7 +800,8 @@ export function scanGray(g: Gray, opts: ScanOptions = {}): Omit<ScanResult, 'ms'
 
 export function scanImage(img: RGBAImage, opts: ScanOptions = {}): ScanResult {
   const t0 = Date.now();
-  const r = scanGray(toGray(img), opts);
+  let rg: Gray | undefined;
+  const r = scanGray(toGray(img), opts, () => (rg ??= minRG(img)));
   return { ...r, ms: Date.now() - t0 };
 }
 

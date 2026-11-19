@@ -52,7 +52,7 @@ export interface SceneTruth {
 
 export interface Scene { width: number; height: number; data: Uint8ClampedArray; truth: SceneTruth }
 
-export const EDGE_XS: number[] = Array.from({ length: 90 }, (_, i) => 4 + i * 2); // same x positions as the scanner
+export const EDGE_XS: number[] = Array.from({ length: 179 }, (_, i) => 4 + i); // same x positions as the scanner (every 1 mm)
 
 function jitterFn(seed: number, amp: number): (x: number) => number {
   if (!amp) return () => 0;

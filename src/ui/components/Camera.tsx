@@ -3,7 +3,13 @@ import { Avatar } from './Party';
 import { scanImages } from '../scanAsync';
 import { videoFrame } from '../imageIO';
 import type { HalfScan } from '../../vision/detect';
-import { captureBlocker, debugLine, readingSummary, drawablePose, POSE_MAX_AGE, type Blocker } from '../../vision/capture';
+import { captureBlocker, debugLine, readingSummary, drawablePose, POSE_MAX_AGE, POSE_MAX_AGE_TABLE, joinBlocker, joinGap, edgeBlocker, type Blocker } from '../../vision/capture';
+import { medianEdges, EDGE_XS } from '../../vision/detect';
+import { makeWave } from '../../core/wave';
+import { RECEIVED_BOX } from '../../core/layout';
+import { saveMarkPic } from '../../store/index';
+import { receiptStep, type ReceiptCapture } from '../../core/received';
+import type { ReceiptRead } from '../../vision/receipt';
 import { targetsFor, FIDUCIALS, FID_SIZE, FRAME_W, FRAME_H } from '../../core/layout';
 import { applyH, type Pt } from '../../core/homography';
 import { formatMoney, type Role } from '../../core/card';
@@ -15,17 +21,53 @@ import { createScope, kaChunk, motionEnv, type Scope } from '../anim';
 import { warpThumb, wavePaths, THUMB } from '../thumb';
 import { Odometer } from './Motion';
 import { Icon } from './Icon';
+import { sharpness, BLUR_MIN, fillRatio, FILL_MIN, isFastMotion, readKey, voteReads, LIVE } from '../../vision/quality';
 
-export type CameraMode = 'halves' | 'join';
+/** The RECEIVED box as a 96 px wide, blurred, low-contrast JPEG (evidence only; never a sharp print). */
+function markPicture(img: { width: number; height: number; data: Uint8ClampedArray }, h: HalfScan): string {
+  const W = 96, H = Math.round((96 * RECEIVED_BOX.h) / RECEIVED_BOX.w);
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d')!;
+  const out = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const [u, v] = applyH(h.pose.H, RECEIVED_BOX.x + ((x + 0.5) / W) * RECEIVED_BOX.w, RECEIVED_BOX.y + ((y + 0.5) / H) * RECEIVED_BOX.h);
+    const px = Math.min(img.width - 1, Math.max(0, Math.round(u))), py = Math.min(img.height - 1, Math.max(0, Math.round(v)));
+    const i = (py * img.width + px) * 4, o = (y * W + x) * 4;
+    for (let k = 0; k < 3; k++) out.data[o + k] = 150 + (img.data[i + k] - 150) * 0.45; // low contrast
+    out.data[o + 3] = 255;
+  }
+  g.putImageData(out, 0, 0);
+  g.filter = 'blur(1.4px)';
+  g.drawImage(c, 0, 0);
+  return c.toDataURL('image/jpeg', 0.5);
+}
+
+/** Phones (touch first) use the faster tick and the longer streak. */
+const isPhoneCam = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
+export type CameraMode = 'halves' | 'join' | 'edges' | 'receipt';
 interface Props {
   have: { S: boolean; F: boolean };
   onHalf: (h: HalfScan) => void;
   onClose: () => void;
   /** Called when both halves are in and the "tally join" has played (or was skipped). */
   onDone?: () => void;
-  /** 'join': both halves side by side in ONE frame, so the cut edges can be checked together. */
+  /** 'join': both halves in ONE frame with a gap, so the cut edges can be checked together.
+   *  'edges': one half at a time, held close, for its wavy edge only. */
   mode?: CameraMode;
+  /** join/edges: new cut-edge reads (the 5-frame median). Only the edge data is meant to be used. */
+  onEdges?: (halves: HalfScan[]) => void;
+  /** switch the camera mode (the join fallback "scan each half's edge close up") */
+  onMode?: (m: CameraMode) => void;
+  /** receipt mode: the card on the result, and where the two reads of the RECEIVED box go */
+  cardId?: string;
+  onReceipt?: (cap: { S?: ReceiptRead; F?: ReceiptRead }) => void;
 }
+
+/** The join instruction, the same everywhere. */
+export const JOIN_TEXT = 'Put both halves on a DARK table with a finger-width gap (1–3 cm) between the wavy edges. Don\'t touch the edges.';
+/** After this long without a join capture, tips and the fallbacks show. */
+export const JOIN_GIVE_UP_MS = 20000;
 
 /** Live-loop timing (the live app's numbers) and HUD timing. */
 export const CAMERA = { tick: 450, framePx: 1600, streak: 2, cooldown: 1800, flash: 1600, retry: 7000, lockMs: 220, pingMs: 420, popMs: 180, lerp: 0.35 };
@@ -44,7 +86,7 @@ const easeOut = (k: number) => 1 - (1 - Math.min(1, Math.max(0, k))) ** 3;
  * worker. When a half that is still needed reads cleanly on 2 ticks in a row it is captured. A HUD on the video
  * shows what the scanner understands; nothing of it is drawn into the frames that are analysed.
  */
-export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props) {
+export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges, onMode, cardId, onReceipt }: Props) {
   const app = useApp();
   const { t, settings } = app;
   const appRef = useRef(app);
@@ -75,6 +117,28 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
   const toneRef = useRef<Tone>('');
   toneRef.current = status.tone;
   const streak = useRef<{ key: string; n: number }>({ key: '', n: 0 });
+  const reads = useRef<HalfScan[]>([]); // recent reads of the half in view, for the vote
+  const moving = useRef(0); // until when (ms) the phone moves too fast
+  const focusAt = useRef(0);
+  const [lowLight, setLowLight] = useState(false);
+  const edgeBuf = useRef<Record<string, number[][]>>({ S: [], F: [] });
+  const [edgeView, setEdgeView] = useState<{ S?: number; F?: number }>({});
+  const [stuck, setStuck] = useState(false);
+  const onEdgesRef = useRef(onEdges); onEdgesRef.current = onEdges;
+  const joinStart = useRef(performance.now());
+  const modeRef = useRef(mode); modeRef.current = mode;
+  const rcap = useRef<ReceiptCapture>({ streak: { role: '', key: '', n: 0 } });
+  const [rchip, setRchip] = useState<{ S?: ReceiptRead; F?: ReceiptRead }>({});
+  const onReceiptRef = useRef(onReceipt); onReceiptRef.current = onReceipt;
+  useEffect(() => {
+    setStuck(false);
+    edgeBuf.current = { S: [], F: [] };
+    if (mode === 'halves') return;
+    joinStart.current = performance.now();
+    const id = setInterval(() => { if (performance.now() - joinStart.current > JOIN_GIVE_UP_MS) setStuck(true); }, 1000);
+    return () => clearInterval(id);
+  }, [mode]);
+  const live0 = useMemo(() => (isPhoneCam() ? LIVE.phone : LIVE.desktop), []);
   const lastCapture = useRef(0);
   const got = useRef({ S: have.S, F: have.F });
   const haveRef = useRef(have);
@@ -156,6 +220,7 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
     got.current = { ...got.current, [role]: true };
     lastCapture.current = Date.now();
     streak.current = { key: '', n: 0 };
+    reads.current = [];
     setLock(1);
     sc.timeout(() => setLock(0), 700);
     // shutter flash, a tiny shake, vibrate, a quiet ka-chunk
@@ -195,6 +260,7 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
       const t = appRef.current.t;
       const tries: MediaStreamConstraints[] = [
         { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
         { video: { facingMode: 'environment' }, audio: false },
         { video: true, audio: false },
       ];
@@ -217,8 +283,13 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
       v.srcObject = s;
       await v.play().catch(() => undefined);
       const track = s.getVideoTracks()[0];
-      const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & { focusMode?: string[]; torch?: boolean };
-      if (caps.focusMode?.includes('continuous')) track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet] }).catch(() => undefined);
+      const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & { focusMode?: string[]; exposureMode?: string[]; whiteBalanceMode?: string[]; torch?: boolean };
+      // continuous focus, exposure and white balance where the camera offers them
+      const adv: Record<string, string> = {};
+      if (caps.focusMode?.includes('continuous')) adv.focusMode = 'continuous';
+      if (caps.exposureMode?.includes('continuous')) adv.exposureMode = 'continuous';
+      if (caps.whiteBalanceMode?.includes('continuous')) adv.whiteBalanceMode = 'continuous';
+      if (Object.keys(adv).length) track.applyConstraints({ advanced: [adv as MediaTrackConstraintSet] }).catch(() => undefined);
       if (caps.torch) setTorch(false);
     })();
     return () => {
@@ -227,6 +298,24 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
       stream.current = null;
     };
   }, []);
+
+  // Fast hand movement (where DeviceMotion exists): frames taken while moving are skipped.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) return;
+    const on = (e: DeviceMotionEvent) => { if (isFastMotion(e.rotationRate, e.acceleration)) moving.current = performance.now() + 250; };
+    window.addEventListener('devicemotion', on);
+    return () => window.removeEventListener('devicemotion', on);
+  }, []);
+
+  /** Focus on the card where the camera supports a point of interest (at most every 2 s). */
+  const focusOn = (h: HalfScan, w: number, hgt: number) => {
+    const track = stream.current?.getVideoTracks()[0];
+    const caps = (track?.getCapabilities?.() ?? {}) as { pointsOfInterest?: unknown };
+    if (!track || !caps.pointsOfInterest || performance.now() - focusAt.current < 2000) return;
+    focusAt.current = performance.now();
+    const cx = h.outline.reduce((a, p) => a + p[0], 0) / 4 / w, cy = h.outline.reduce((a, p) => a + p[1], 0) / 4 / hgt;
+    track.applyConstraints({ advanced: [{ pointsOfInterest: [{ x: cx, y: cy }] } as unknown as MediaTrackConstraintSet] }).catch(() => undefined);
+  };
 
   // The box takes the video's own shape (no letterbox bands); the HUD sits exactly on the picture.
   useEffect(() => {
@@ -270,9 +359,12 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
     const f = videoFrame(v, CAMERA.framePx);
     if (!f) return;
     const { t, settings: st } = appRef.current;
+    // skip frames taken while the phone moves fast or that are blurred (a 400 px copy is enough to tell)
+    if (!manual && performance.now() < moving.current) { setStatus({ text: t('Hold still…'), tone: 'warn' }); return; }
+    if (!manual && sharpness(f.img) < BLUR_MIN) { setStatus({ text: t('Hold still… the picture is blurred.'), tone: 'warn' }); return; }
     let res;
     try {
-      [res] = await scanImages([f.img], { calibration: st.calibration });
+      [res] = await scanImages([f.img], { calibration: st.calibration, pair: mode === 'join' });
     } catch {
       setStatus({ text: t('Could not read that frame, trying again…'), tone: 'warn' });
       return;
@@ -289,19 +381,75 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
       setDebug(st.scannerDebug ? `no QR · ${res.squaresSeen ?? 0} square blobs · ${res.ms} ms` : '');
       if (res.foreign.length) setStatus({ text: t('That QR code is not a Stock & Foil card.'), tone: 'warn' });
       else if ((res.squaresSeen ?? 0) >= 3) setStatus({ text: t('A card is in view but its QR code cannot be read yet: move it closer and hold still.'), tone: 'warn' });
-      else { setStatus({ text: mode === 'join' ? t('Lay both halves side by side, wavy edges touching, on a dark table.') : idle, tone: '' }); say(got.current.S ? 'foil' : 'stock'); }
+      else { setStatus({ text: mode === 'join' ? t(JOIN_TEXT) : mode === 'edges' ? t('Hold one half close, its wavy edge across the picture, on a dark table.') : mode === 'receipt' ? t('Show each half with its RECEIVED box to the camera.') : idle, tone: '' }); if (mode === 'halves') say(got.current.S ? 'foil' : 'stock'); }
       return;
     }
     live.current = { halves: res.halves, scale: f.scale, at: now };
-    if (mode === 'join') {
+    if (mode === 'receipt') {
+      const h = res.halves[0];
+      const { cap, step } = receiptStep(rcap.current, cardId ?? '', { id: h.decoded.spec.id, role: h.decoded.role, read: h.receipt });
+      rcap.current = cap;
+      setRchip({ S: cap.S, F: cap.F, [h.decoded.role]: h.receipt });
+      if (step.kind === 'wrong-card') { setStatus({ text: t('This is a different card.'), tone: 'warn' }); return; }
+      if (!h.decoded.spec.receiptBox) { setStatus({ text: t('This card has no RECEIVED box.'), tone: 'warn' }); return; }
+      const who = h.decoded.role === 'S' ? t('worker half') : t('employer half');
+      if (step.kind === 'got') {
+        if (st.keepMarkPic && step.read.status === 'present') { try { saveMarkPic(`${h.decoded.spec.id}:${h.decoded.role}:${new Date().toISOString().slice(0, 10)}`, markPicture(f.img, h)); } catch { /* evidence picture is optional */ } }
+        setShutter((n) => n + 1);
+        navigator.vibrate?.(40);
+        kaChunk(scope.current, st.sounds);
+        if (cap.S && cap.F) { doneOnce.current = true; onReceiptRef.current?.({ S: cap.S, F: cap.F }); onDoneRef.current?.(); return; }
+        setStatus({ text: t('✓ {0} read. Now show the other half.', who), tone: 'good' });
+        return;
+      }
+      const r = step.read;
+      setStatus({ text: r.status === 'unclear' ? t('Received mark unclear: tilt or keep fingers off') : r.status === 'absent' ? t('No mark yet in the RECEIVED box of the {0}.', who) : t('Hold still…'), tone: r.status === 'present' ? 'good' : 'warn' });
+      return;
+    }
+    if (mode === 'join' || mode === 'edges') {
       const s = res.halves.find((x) => x.decoded.role === 'S'), fo = res.halves.find((x) => x.decoded.role === 'F');
       setDebug(st.scannerDebug ? res.halves.map(debugLine).join(' ‖ ') : '');
-      if (!s || !fo) { streak.current = { key: '', n: 0 }; setLock(0); setStatus({ text: t('Both halves must be in the picture together.'), tone: 'warn' }); return; }
-      const why = captureBlocker(s) ?? captureBlocker(fo);
-      if (why) { streak.current = { key: '', n: 0 }; setLock(0); setStatus({ text: blockText(why), tone: 'warn' }); return; }
-      streak.current = { key: 'join', n: streak.current.key === 'join' ? streak.current.n + 1 : 1 };
-      setLock(Math.min(1, streak.current.n / CAMERA.streak));
-      if (manual || streak.current.n >= CAMERA.streak) { capture(s, f); capture(fo, f); return; }
+      setEdgeView({ S: s?.edgeCoverage, F: fo?.edgeCoverage });
+      const who = (r: Role) => (r === 'S' ? t('worker half') : t('employer half'));
+      const why = mode === 'join' ? joinBlocker(s, fo, s && fo ? joinGap(s, fo) : NaN) : edgeBlocker(res.halves[0]);
+      if (why) {
+        streak.current = { key: '', n: 0 };
+        setLock(0);
+        const text = why.code === 'both' ? t('Both halves must be in the picture together.')
+          : why.code === 'gap' ? t('Leave a gap: a finger-width (1–3 cm) between the wavy edges. They must not touch.')
+          : why.code === 'closer' ? t('Move closer.')
+          : why.code === 'darker' ? t('Darker table needed: the wavy edges must show against a dark surface.')
+          : why.code === 'edge' ? t('Cut edge seen {0}% on {1}: keep fingers off the edge.', Math.round(why.coverage * 100), who(why.role))
+          : blockText(why.why);
+        setStatus({ text, tone: 'warn' });
+        return;
+      }
+      const found = (mode === 'join' ? [s!, fo!] : [res.halves[0]]);
+      for (const h of found) edgeBuf.current[h.decoded.role] = [...edgeBuf.current[h.decoded.role], h.edge].slice(-5);
+      const key = mode + found.map((h) => h.decoded.role + h.decoded.spec.id).join('');
+      streak.current = { key, n: streak.current.key === key ? streak.current.n + 1 : 1 };
+      setLock(Math.min(1, streak.current.n / live0.streak));
+      if (manual || streak.current.n >= live0.streak) {
+        // the per-sample median of the last good frames replaces only the cut-edge data
+        const out = found.map((h) => {
+          const edge = medianEdges(edgeBuf.current[h.decoded.role]);
+          return { ...h, edge, edgeCoverage: edge.filter(Number.isFinite).length / Math.max(1, edge.length) };
+        });
+        lastCapture.current = Date.now();
+        streak.current = { key: '', n: 0 };
+        setLock(1);
+        setShutter((n) => n + 1);
+        navigator.vibrate?.(60);
+        kaChunk(scope.current, st.sounds);
+        onEdgesRef.current?.(out);
+        if (mode === 'join') { doneOnce.current = true; onDoneRef.current?.(); }
+        else {
+          for (const h of out) got.current = { ...got.current, [h.decoded.role]: true };
+          setFlash(out[0].decoded.role === 'S' ? t('✓ worker half edge captured') : t('✓ employer half edge captured'));
+          if (got.current.S && got.current.F) { doneOnce.current = true; scope.current.timeout(() => onDoneRef.current?.(), 400); }
+        }
+        return;
+      }
       setStatus({ text: t('Hold still…'), tone: 'good' });
       return;
     }
@@ -316,25 +464,39 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
       setStatus({ text: role === 'S' ? t('The worker half is already captured. Show the EMPLOYER half.') : t('The employer half is already captured. Show the WORKER half.'), tone: 'warn' });
       return;
     }
-    if (manual) { capture(h, f); return; }
+    // the vote keeps the last 5 reads of this half (same card and role)
+    const prev = reads.current.filter((r) => r.decoded.role === role && r.decoded.spec.id === h.decoded.spec.id);
+    reads.current = [...prev, h].slice(-5);
+    const voted = voteReads(reads.current);
+    if (manual) { capture(voted, f); return; }
+    focusOn(h, f.img.width, f.img.height);
+    setLowLight(h.paperRef / 255 < 0.35);
     const why = captureBlocker(h);
     if (why) {
       streak.current = { key: '', n: 0 };
       setLock(0);
-      setStatus({ text: blockText(why), tone: 'warn' });
+      setStatus({ text: blockText(why) + (why.code === 'dark' && torch !== null ? ' ' + t('Turn on the light.') : ''), tone: 'warn' });
       say(KEY[why.code]);
       return;
     }
-    const key = role + h.decoded.spec.id;
+    if (h.warnings.includes('glare')) {
+      streak.current = { key: '', n: 0 };
+      setLock(0);
+      setStatus({ text: t('Tilt a little to avoid glare.'), tone: 'warn' });
+      return;
+    }
+    // a streak counts only while every punch and the card id stay the same; any flip starts again
+    const key = readKey(h);
     streak.current = { key, n: streak.current.key === key ? streak.current.n + 1 : 1 };
-    setLock(Math.min(1, streak.current.n / CAMERA.streak) * 0.999);
-    if (autoRef.current && streak.current.n >= CAMERA.streak) { capture(h, f); return; }
+    setLock(Math.min(1, streak.current.n / live0.streak) * 0.999);
+    if (autoRef.current && streak.current.n >= live0.streak) { capture(voted, f); return; }
     const s = readingSummary(h);
     const seen = t('days {0} · advances {1}', s.days.length ? s.days.join(',') : t('none'), s.adv.length ? s.adv.join(',') : t('none'));
-    const tip = h.warnings.includes('edge-hidden') ? ' ' + t('Tip: keep fingers off the wavy edge so it can be checked.') : '';
+    const small = fillRatio(h.outline, f.img.width, f.img.height) < FILL_MIN;
+    const tip = (small ? ' ' + t('Move closer.') : '') + (h.paperRef / 255 < 0.35 ? ' ' + t('More light.') : '') + (h.warnings.includes('edge-hidden') ? ' ' + t('Tip: keep fingers off the wavy edge so it can be checked.') : '');
     setStatus({ text: (autoRef.current ? t('✓ {0} half detected ({1}). Hold still…', label, seen) : t('✓ {0} half detected ({1}). Tap Capture now.', label, seen)) + tip, tone: 'good' });
     if (autoRef.current) say('still');
-  }, [capture, say, mode]);
+  }, [capture, say, mode, live0, torch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The loop: one scan at a time, paused while hidden and for 1.8 s after a capture.
   useEffect(() => {
@@ -343,11 +505,11 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
       if (stop || busy || document.hidden || Date.now() - lastCapture.current < CAMERA.cooldown) return;
       busy = true;
       try { await tick(); } finally { busy = false; }
-    }, CAMERA.tick);
+    }, live0.tick);
     const vis = () => { const v = video.current; if (!v) return; if (document.hidden) v.pause(); else v.play().catch(() => undefined); };
     document.addEventListener('visibilitychange', vis);
     return () => { stop = true; clearInterval(id); document.removeEventListener('visibilitychange', vis); };
-  }, [tick]);
+  }, [tick, live0]);
 
   // ---------------- the HUD (one canvas, redrawn every frame from a smoothed pose) ----------------
   useEffect(() => {
@@ -375,7 +537,7 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
       const ox = (cw - v.videoWidth * s) / 2, oy = (ch - v.videoHeight * s) / 2;
       const vw = v.videoWidth * s, vh = v.videoHeight * s;
       const red = '#e2584a', green = '#2fbf71', amber = '#f6a609';
-      const L = drawablePose<HalfScan, Live>(live.current, now);
+      const L = drawablePose<HalfScan, Live>(live.current, now, modeRef.current === 'halves' ? POSE_MAX_AGE : POSE_MAX_AGE_TABLE);
       const sweep = 0.5 - 0.5 * Math.cos(((now - t0) / 1800) * Math.PI * 2);
       if (!L) {
         shown.clear();
@@ -474,6 +636,30 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
             g.beginPath(); g.arc(x, y, R, 0, Math.PI * 2); g.stroke();
           }
         }
+        // cut-edge overlay (join / edges): the designed wave as a ghost of where the partner fits, and the
+        // traced edge as dots, green where it was traced and grey where it was not
+        if (modeRef.current === 'receipt') {
+          const rb = RECEIVED_BOX, rr = half.receipt;
+          const pts = ([[rb.x, rb.y], [rb.x + rb.w, rb.y], [rb.x + rb.w, rb.y + rb.h], [rb.x, rb.y + rb.h]] as Pt[]).map(([x, y]) => at(x, y));
+          const col = rr?.status === 'present' ? green : rr?.status === 'unclear' ? amber : 'rgba(255,240,220,.85)';
+          g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.closePath();
+          if (rr?.status === 'present') { g.fillStyle = 'rgba(47,191,113,.28)'; g.fill(); }
+          g.strokeStyle = col; g.lineWidth = 3; g.stroke();
+        }
+        if (modeRef.current === 'join' || modeRef.current === 'edges') {
+          const wave = makeWave(half.decoded.spec.id);
+          const nominal = half.decoded.role === 'S' ? FRAME_H + 12 : -12;
+          g.setLineDash([6, 5]); g.lineWidth = 1.5; g.strokeStyle = 'rgba(255,240,220,.55)';
+          g.beginPath();
+          EDGE_XS.forEach((x, i) => { const p = at(x, nominal + wave.at(x)); if (i) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); });
+          g.stroke(); g.setLineDash([]);
+          for (let i = 0; i < EDGE_XS.length; i += 3) {
+            const v = half.edge[i], ok = Number.isFinite(v);
+            const p = at(EDGE_XS[i], nominal + (ok ? v : wave.at(EDGE_XS[i])));
+            g.fillStyle = ok ? green : 'rgba(180,180,180,.7)';
+            g.beginPath(); g.arc(p[0], p[1], ok ? 2.2 : 1.6, 0, Math.PI * 2); g.fill();
+          }
+        }
       }
     };
     raf = requestAnimationFrame(draw);
@@ -522,13 +708,38 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
               <span className="tj-label">{joining.ok ? t('The halves fit') : t('These halves are not from the same card')}</span>
             </div>
           )}
+          {mode === 'receipt' && (
+            <div className="edge-bars">
+              {(['S', 'F'] as const).map((r) => {
+                const rr = rchip[r];
+                const done = !!rcap.current[r];
+                return (
+                  <span key={r} className={'edge-bar rc' + (rr?.status === 'present' ? ' ok' : rr?.status === 'unclear' ? ' warn' : '')}>
+                    <b>{r === 'S' ? t('Worker half') : t('Employer half')}</b>
+                    <em>{rr?.status === 'present' ? (rr.kind === 'thumb' ? t('thumb ✓') : rr.kind === 'signature' ? t('signature ✓') : t('mark ✓')) : rr?.status === 'unclear' ? t('unclear') : t('not yet')}{done ? ' ●' : ''}</em>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {(mode === 'join' || mode === 'edges') && (
+            <div className="edge-bars" aria-label={t('Cut edge seen')}>
+              {(['S', 'F'] as const).filter((r) => mode === 'join' || edgeView[r] !== undefined).map((r) => (
+                <span key={r} className={'edge-bar' + ((edgeView[r] ?? 0) >= 0.6 ? ' ok' : '')}>
+                  <b>{r === 'S' ? t('Worker edge') : t('Employer edge')}</b>
+                  <i style={{ ['--k' as string]: String(edgeView[r] ?? 0) }} />
+                  <em>{Math.round((edgeView[r] ?? 0) * 100)}%</em>
+                </span>
+              ))}
+            </div>
+          )}
           <div className={'cam-status ' + tone} role="status" aria-live="polite">
             <span className="cam-hint">{error || status.text}</span>
             {settings.scannerDebug && debug && <span className="cam-debug" data-notranslate>{debug}</span>}
           </div>
         </div>
         <div className="cam-tools">
-          {torch !== null && <button className="btn small" onClick={(e) => { e.stopPropagation(); void toggleTorch(); }} aria-pressed={torch}>🔦 {t('Light')}</button>}
+          {torch !== null && <button className={'btn small' + (lowLight && !torch ? ' pulse-light' : '')} onClick={(e) => { e.stopPropagation(); void toggleTorch(); }} aria-pressed={torch}>🔦 {t('Light')}</button>}
           <button className="btn small" onClick={(e) => { e.stopPropagation(); onClose(); }}><Icon name="close" /> {t('Close')}</button>
         </div>
       </div>
@@ -536,6 +747,21 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
         <div key={pill} className="cam-pill" role="status">
           <span>{pill}</span>
           {pillWho ? <span className="cam-pill-flip"><Avatar role={pillWho.role} name={pillWho.name} size={26} /></span> : <span className="cam-pill-flip" aria-hidden="true"><Icon name="card" /></span>}
+        </div>
+      )}
+      {(mode === 'join' || mode === 'edges') && stuck && (
+        <div className="panel join-stuck" role="status">
+          <b>{t('The cut is hard to see.')}</b>
+          <ul className="small ui">
+            <li>{t('Use a dark cloth or table, not a white one.')}</li>
+            <li>{t('Keep a finger-width gap between the wavy edges.')}</li>
+            <li>{t('Hold fingers on the far sides, away from the edges.')}</li>
+            <li>{t('Move closer so the halves fill the picture.')}</li>
+          </ul>
+          <div className="row">
+            {mode === 'join' && onMode && <button className="btn small primary" onClick={() => onMode('edges')}>✂ {t("Scan each half's wavy edge close up")}</button>}
+            <button className="btn small" onClick={onClose}>{t('Keep result without cut check')}</button>
+          </div>
         </div>
       )}
       {mode === 'halves' && (

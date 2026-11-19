@@ -1,6 +1,7 @@
 // When may the camera capture a half? Pure, so the rule is tested directly.
 import type { HalfScan } from './detect';
 import { T } from './detect';
+import { applyH } from '../core/homography';
 
 export type Blocker =
   | { code: 'surface' }
@@ -45,9 +46,72 @@ export function debugLine(h: HalfScan): string {
 
 /** The overlay never draws a pose older than this (a hand-held card moves). */
 export const POSE_MAX_AGE = 600;
+/** Cards lying on a table (check the cut, received mark) move little and take longer to read: a longer limit. */
+export const POSE_MAX_AGE_TABLE = 1600;
 export interface LivePose<T> { halves: T[]; at: number; scale?: number }
 /** What the overlay may draw at time now: nothing when there is no card or the pose is stale. */
-export function drawablePose<T, L extends LivePose<T>>(live: L | null, now: number): L | null {
+export function drawablePose<T, L extends LivePose<T>>(live: L | null, now: number, maxAge = POSE_MAX_AGE): L | null {
   if (!live || !live.halves.length) return null;
-  return now - live.at > POSE_MAX_AGE ? null : live;
+  return now - live.at > maxAge ? null : live;
+}
+
+// ---------------- join mode ("Check the cut"): both halves in one picture ----------------
+
+export type JoinBlocker =
+  | { code: 'both' }
+  | { code: 'half'; role: 'S' | 'F'; why: Blocker }
+  | { code: 'gap'; gapMm: number }
+  | { code: 'closer'; pxPerMm: number }
+  | { code: 'darker' }
+  | { code: 'edge'; role: 'S' | 'F'; coverage: number };
+
+/** What join capture needs: edge seen on ≥ 60% of each half, ≥ 3 px/mm, a dark table, and a gap between the edges. */
+export const JOIN = { coverage: 0.6, pxPerMm: 3, gapMin: 8, gapMax: 60 };
+
+/**
+ * The gap between the two cut edges in one picture, in mm: the median distance from points on the stock's
+ * nominal cut to the nearest point on the foil's nominal cut (image px over the mean px per mm).
+ */
+export function joinGap(stock: HalfScan, foil: HalfScan): number {
+  const xs = Array.from({ length: 30 }, (_, i) => 6 + i * 6);
+  const sp = xs.map((x) => applyH(stock.pose.H, x, 132));
+  const fp = xs.map((x) => applyH(foil.pose.H, x, -12));
+  const d = sp.map(([x, y]) => Math.min(...fp.map(([u, v]) => Math.hypot(u - x, v - y)))).sort((a, b) => a - b);
+  const ppm = (stock.pose.pxPerMm + foil.pose.pxPerMm) / 2;
+  return d[Math.floor(d.length / 2)] / Math.max(1e-6, ppm);
+}
+
+/** Paper (not table) just beyond the cut while the table beside the half is dark. */
+export const touching = (h: HalfScan): boolean =>
+  Number.isFinite(h.sideRef) && h.sideRef < h.paperRef * T.contrast && Number.isFinite(h.bgRef) && h.bgRef >= h.paperRef * T.contrast;
+
+/** Why join capture must wait, in the order a person can fix it; null when it may capture. */
+export function joinBlocker(stock: HalfScan | undefined, foil: HalfScan | undefined, gapMm: number): JoinBlocker | null {
+  if (!stock || !foil) {
+    // one half read and paper right beyond its cut while the table beside it is dark: the edges touch or overlap
+    const h = stock ?? foil;
+    if (h && touching(h)) return { code: 'gap', gapMm: 0 };
+    return { code: 'both' };
+  }
+  if ([stock, foil].some(touching)) return { code: 'gap', gapMm: Math.min(gapMm, 0) };
+  for (const h of [stock, foil]) { const why = captureBlocker(h); if (why) return { code: 'half', role: h.decoded.role, why }; }
+  if (gapMm < JOIN.gapMin) return { code: 'gap', gapMm };
+  const ppm = Math.min(stock.pose.pxPerMm, foil.pose.pxPerMm);
+  if (ppm < JOIN.pxPerMm) return { code: 'closer', pxPerMm: ppm };
+  if ([stock, foil].some((h) => h.warnings.includes('dark-surface') || h.warnings.includes('edge-surface'))) return { code: 'darker' };
+  for (const h of [stock, foil]) {
+    if (h.edgeCoverage < JOIN.coverage || h.warnings.includes('edge-hidden')) return { code: 'edge', role: h.decoded.role, coverage: h.edgeCoverage };
+  }
+  return null;
+}
+
+/** 'edges' mode (one half close up for its cut): the same edge rules for that one half, a little closer. */
+export function edgeBlocker(h: HalfScan | undefined): JoinBlocker | null {
+  if (!h) return { code: 'both' };
+  const why = captureBlocker(h);
+  if (why) return { code: 'half', role: h.decoded.role, why };
+  if (h.pose.pxPerMm < JOIN.pxPerMm + 0.5) return { code: 'closer', pxPerMm: h.pose.pxPerMm };
+  if (h.warnings.includes('dark-surface') || h.warnings.includes('edge-surface')) return { code: 'darker' };
+  if (h.edgeCoverage < JOIN.coverage || h.warnings.includes('edge-hidden')) return { code: 'edge', role: h.decoded.role, coverage: h.edgeCoverage };
+  return null;
 }
