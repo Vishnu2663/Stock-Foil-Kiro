@@ -30,6 +30,14 @@ export default function Punch() {
           </ol>
           <h3>Why it can’t be quietly changed</h3>
           <p className="small ui">A hole can be added to a half but not made to match on the other half without having both halves. Holes can’t be removed from paper. A replacement half must carry the other half’s pairing secret and the same card code, and neither is possible to fake from a photo.</p>
+          <h3>What you need</h3>
+          <ul className="small ui">
+            <li>The printed card, cut on the wave: the worker keeps the stock, the employer the foil.</li>
+            <li>A hole punch for every working day and advance, through both halves at once.</li>
+            <li>A thumb ink pad (violet, blue or black) for payday.</li>
+          </ul>
+          <h3>Payday: the received mark</h3>
+          <p className="small ui">When the wage is handed over, the worker presses an inked thumb in the RECEIVED box on both halves, like the old pay-register thumb impression. The app only checks that a mark is there and whether it looks like a thumb mark, a signature or a smudge. It never identifies anyone and keeps no fingerprint.</p>
           <a className="btn primary" href="#/issue">+ Make a card</a>
         </div>
       </div>

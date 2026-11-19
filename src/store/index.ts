@@ -21,6 +21,10 @@ export interface Settings {
   sounds: boolean;
   /** denominations the payer does not have, per currency (Settings → Notes I have) */
   notesOff: Record<string, number[]>;
+  /** keep a small blurred picture of the worker's received mark as evidence (on this device only) */
+  keepMarkPic: boolean;
+  /** allow those pictures to be downloaded */
+  exportMarkPic: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -36,6 +40,8 @@ export const DEFAULT_SETTINGS: Settings = {
   scannerDebug: false,
   sounds: true,
   notesOff: {},
+  keepMarkPic: false,
+  exportMarkPic: false,
 };
 
 export interface KV { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
@@ -103,7 +109,19 @@ export const KEYS = {
   storyVoice: 'sf.storyVoice',
   brokenVoices: 'sf.brokenVoices',
   owed: 'sf.owed',
+  markPics: 'sf.markpics',
 };
+
+/** Blurred, low-contrast 96 px pictures of received marks, keyed "card:role:date". Device only. */
+export const loadMarkPics = (): Record<string, string> => readJSON<Record<string, string>>(KEYS.markPics, {});
+export function saveMarkPic(key: string, dataUrl: string) {
+  const all = loadMarkPics();
+  all[key] = dataUrl;
+  const keys = Object.keys(all);
+  for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete all[k]; // keep the latest 200
+  writeJSON(KEYS.markPics, all);
+}
+export const clearMarkPics = () => removeKey(KEYS.markPics);
 
 /** Field by field: a field is kept only when its type matches the default. */
 export function sanitizeSettings(raw: unknown): Settings {

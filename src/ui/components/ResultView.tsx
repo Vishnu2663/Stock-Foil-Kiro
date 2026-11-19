@@ -17,6 +17,7 @@ import { Avatar, Party, partyText } from './Party';
 import type { PaydayModel, Token } from '../payday';
 import type { CashBreakdown } from '../../core/cash';
 import { useApp } from '../ctx';
+import { markText } from '../../core/received';
 
 /** Short weekday names (Monday first) in the card's language. */
 const week = (lang: string) => Array.from({ length: 7 }, (_, i) => { try { return new Intl.DateTimeFormat(lang, { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, 1 + i))).replace('.', ''); } catch { return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]; } });
@@ -54,6 +55,10 @@ export interface HeroProps {
   model?: PaydayModel;
   onEdit?: (edit: NonNullable<Token['edit']>, minor: number) => void;
   wageControl?: ReactNode;
+  /** already paid: show the final state, no celebration replay */
+  quiet?: boolean;
+  /** bumps when a payment with the worker's mark is recorded: the PAID stamp slams with a violet ink press */
+  inkPress?: number;
 }
 
 /** Employer seal ──amount──▶ worker badge; notes travel along the arrow whenever the amount changes. */
@@ -127,12 +132,12 @@ function Formula({ model, onEdit, currency }: { model: PaydayModel; onEdit?: Her
 }
 
 /** The hero: stamp slam, odometer amount, typed formula, notes fan, actions. Plays once per result key. */
-export function ResultHero({ result, rkey, level, children, actions, onJoin, model, onEdit, wageControl }: HeroProps) {
+export function ResultHero({ result, rkey, level, children, actions, onJoin, model, onEdit, wageControl, quiet, inkPress = 0 }: HeroProps) {
   const { t } = useApp();
   const root = useRef<HTMLDivElement>(null);
   const stampRef = useRef<HTMLSpanElement>(null);
   const [skip, setSkip] = useState(false);
-  const plan = useMemo(() => revealPlan(level, motionEnv()), [level, rkey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const plan = useMemo(() => revealPlan(quiet ? 'none' : level, quiet ? { ...motionEnv(), reduced: true } : motionEnv()), [level, rkey]); // eslint-disable-line react-hooks/exhaustive-deps
   const spec = result.spec;
   const v = result.pay?.agreed;
   const stamp = stampFor(result, level, VERDICT_LABEL[result.verdict]);
@@ -140,6 +145,19 @@ export function ResultHero({ result, rkey, level, children, actions, onJoin, mod
   const cash: CashBreakdown | null = showAmount ? (model?.cash ?? cashBreakdown(v!.net, spec!.currency)) : null;
   const net = model?.net ?? v?.net ?? 0;
   const first = useRef(true);
+  // a new verdict on the same card (e.g. after "Check the cut"): the old stamp lifts off, the new one slams
+  const prevStamp = useRef<{ id: string; text: string; tone: string } | null>(null);
+  const [ghost, setGhost] = useState<{ text: string; tone: string } | null>(null);
+  useEffect(() => {
+    const p = prevStamp.current, id = spec?.id ?? '';
+    if (p && p.id === id && p.text !== stamp.text && !plan.instant) {
+      setGhost({ text: p.text, tone: p.tone });
+      const h = setTimeout(() => setGhost(null), 520);
+      prevStamp.current = { id, text: stamp.text, tone: stamp.tone };
+      return () => clearTimeout(h);
+    }
+    prevStamp.current = { id, text: stamp.text, tone: stamp.tone };
+  }, [stamp.text]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const id = setTimeout(() => { first.current = false; }, 2500); return () => clearTimeout(id); }, [rkey]);
 
   useEffect(() => {
@@ -164,7 +182,9 @@ export function ResultHero({ result, rkey, level, children, actions, onJoin, mod
         </div>
         <span className="rv-stamp-wrap">
           {plan.splatter && !skip && <Splatter tone={stamp.tone} />}
-          <span ref={stampRef} className={`rv-stamp ${stamp.tone}`} role="status">{t(stamp.text)}</span>
+          {ghost && <span className={`rv-stamp ${ghost.tone} lift`} aria-hidden="true">{t(ghost.text)}</span>}
+          {inkPress > 0 && <span key={'ink' + inkPress} className="rv-stamp paid-stamp" aria-hidden="true">{t('PAID')}<i className="ink-press" /></span>}
+          <span key={stamp.text} ref={stampRef} className={`rv-stamp ${stamp.tone}` + (ghost ? ' swap' : '')} role="status">{t(stamp.text)}</span>
         </span>
       </div>
       {showAmount && spec && model && <PayFlow spec={spec} model={model} flowKey={rkey + ':' + net} />}
@@ -188,7 +208,7 @@ export function ResultHero({ result, rkey, level, children, actions, onJoin, mod
       )}
       {level === 'match' && onJoin && (
         <button className="btn small rv-join" onClick={(e) => { e.stopPropagation(); onJoin(); }}>
-          ✂ {t('Check the cut: lay both halves side by side, wavy edges touching, on a dark table')}
+          ✂ {t('Check the cut')}: {t('Put both halves on a DARK table with a finger-width gap (1–3 cm) between the wavy edges. Don\'t touch the edges.')}
         </button>
       )}
       {children}
@@ -352,7 +372,7 @@ const FIX: Record<string, string> = {
   id: 'These halves come from different cards. Find the matching half.',
   code: 'One half was reprinted or edited. Use the original halves.',
   pairing: 'These halves were not issued together, or one was made up.',
-  edge: 'Lay both halves edge to edge on a dark table and check the cut.',
+  edge: 'Put both halves on a DARK table with a finger-width gap (1–3 cm) between the wavy edges. Don\'t touch the edges.',
   holes: 'Tap the one-sided or unsure days and check them by eye.',
   align: 'A hole looks punched separately. Check it by eye with both halves stacked.',
   photo: 'Retake the photo with all 4 corner squares in view.',
@@ -371,7 +391,9 @@ export function CheckTimeline({ result, onJoin, rkey }: { result: PairResult; on
             </span>
             <span className="cl-body">
               <b>{t(c.label)}</b> <span className="sr-only">{st === 'ok' ? t('passed') : st === 'no' ? t('failed') : t('not decided')}</span>
-              {c.detail && <span className="cl-detail" data-notranslate={c.id === 'id' || c.id === 'code' ? '' : undefined}>{c.detail}</span>}
+              {c.id === 'receipt' && result.mark
+                ? <span className="cl-detail" data-notranslate>{(() => { const mt = markText(result.mark); const kinds: Record<string, string> = { thumb: t('thumb'), signature: t('signature'), smudge: t('smudge') }; return t(mt.text, mt.arg ? kinds[mt.arg] ?? mt.arg : ''); })()}</span>
+                : c.detail && <span className="cl-detail" data-notranslate={c.id === 'id' || c.id === 'code' ? '' : undefined}>{c.detail}</span>}
               {st === 'no' && FIX[c.id] && <span className="cl-fix">{t(FIX[c.id])}</span>}
               {c.id === 'edge' && st !== 'ok' && onJoin && <button className="btn small cl-join" onClick={onJoin}>✂ {t('Check the cut now')}</button>}
             </span>
@@ -406,9 +428,11 @@ export function WarningBanner({ halves }: { halves: (HalfScan | undefined)[] }) 
 }
 
 /** A collapsible section (open by default; on phones it can be folded). */
-export function Section({ title, children, className = '', extra }: { title: string; children: ReactNode; className?: string; extra?: ReactNode }) {
+export function Section({ title, children, className = '', extra, phoneClosed }: { title: string; children: ReactNode; className?: string; extra?: ReactNode; phoneClosed?: boolean }) {
+  // on phones a long section (the checks) starts folded with its summary chip showing
+  const [open] = useState(() => !(phoneClosed && typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches));
   return (
-    <details className={'panel rv-sec ' + className} open>
+    <details className={'panel rv-sec ' + className} open={open}>
       <summary><h2>{title}</h2>{extra}</summary>
       {children}
     </details>

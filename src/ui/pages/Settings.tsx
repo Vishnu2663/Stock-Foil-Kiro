@@ -4,10 +4,13 @@ import { useApp } from '../ctx';
 import { Field, OptionCard, Switch } from '../components/Controls';
 import { UI_LANGS, langInfo } from '../../i18n/index';
 import { PRESETS, builtinAvailable, translateStrings, explain } from '../../ai/index';
-import { clearAll, type AiProvider } from '../../store/index';
+import { clearAll, loadMarkPics, clearMarkPics, download, type AiProvider } from '../../store/index';
 import { speak, speechSupported } from '../../ai/speech';
 import { forgetPack } from '../../i18n/uiPack';
 import source from '../../i18n/ui/source.json';
+import { Select } from '../components/Select';
+import { Icon } from '../components/Icon';
+import { SCAN_RESET } from '../routes';
 
 /** Denominations the payer has: untick a note to pay with smaller ones instead. */
 function NotesIHave() {
@@ -23,7 +26,7 @@ function NotesIHave() {
     <div className="notes-have">
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <b>{t('Notes I have')}</b>
-        <select className="input" style={{ width: 'auto' }} value={cur} onChange={(e) => setCur(e.target.value)} aria-label={t('Currency')}>{Object.keys(NOTES).map((c) => <option key={c}>{c}</option>)}</select>
+        <Select value={cur} onChange={setCur} label={t('Currency')} options={Object.keys(NOTES)} className="auto" />
       </div>
       <p className="small ui">{t('Untick notes you do not have. The pay is then made up from the notes you have, and the result says so.')}</p>
       <div className="row nh-list">
@@ -31,6 +34,21 @@ function NotesIHave() {
           <label key={v} className={'nh' + (off.has(v) ? ' off' : '')}><input type="checkbox" checked={!off.has(v)} onChange={() => flip(v)} /> <span data-notranslate>{v}</span></label>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** The saved mark pictures: count, delete, and download only when allowed. */
+function MarkPics() {
+  const { t, settings, setSettings, toast } = useApp();
+  const [n, setN] = useState(() => Object.keys(loadMarkPics()).length);
+  if (!n && !settings.keepMarkPic) return null;
+  return (
+    <div className="row small ui">
+      <span>{t('{0} mark pictures on this device', n)}</span>
+      <button className="btn small" disabled={!n} onClick={() => { clearMarkPics(); setN(0); toast(t('Mark pictures deleted.'), 'good'); }}>{t('Delete them')}</button>
+      <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={settings.exportMarkPic} onChange={(e) => setSettings({ exportMarkPic: e.target.checked })} /> {t('Allow downloading them')}</label>
+      <button className="btn small" disabled={!n || !settings.exportMarkPic} onClick={() => download('stock-foil-mark-pictures.json', JSON.stringify(loadMarkPics()), 'application/json')}>⬇ {t('Download')}</button>
     </div>
   );
 }
@@ -59,14 +77,13 @@ export default function Settings() {
 
   return (
     <div className="stack">
+      <a className="btn primary big scan-again" href="#/scan" onClick={() => { try { sessionStorage.setItem(SCAN_RESET, '1'); } catch { /* private mode */ } }}><Icon name="scan" /> {t('Scan another')}</a>
       <h1>Settings</h1>
       <div className="grid cols-2" style={{ alignItems: 'start' }}>
         <div className="panel stack">
           <h2>Language &amp; voice</h2>
           <Field label={t('Language')} hint={t('The one language for the whole app: scan results, the pay slip, the plain-words explanation and read-aloud. New cards are printed in it too (you can still change that per card).')}>
-            <select value={settings.lang} onChange={(e) => setSettings({ lang: e.target.value })}>
-              {UI_LANGS.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
-            </select>
+            <Select value={settings.lang} onChange={(v) => setSettings({ lang: v })} label={t('Language')} options={UI_LANGS.map((l) => ({ value: l.code, label: l.name }))} />
           </Field>
           <OptionCard checked={settings.simple} onChange={(v) => setSettings({ simple: v })} title={t('Pictures and voice mode')} badge={t('for workers who cannot read')} text={t('Big pictures and buttons, a Listen button on every page, spoken instructions while scanning, and the result shown as suns for the days and notes to hand over, read aloud in your language.')} />
           <label className="field">
@@ -95,11 +112,11 @@ export default function Settings() {
           <h2>Free AI</h2>
           <p className="small ui muted">{t('Optional. Used to explain pay and disputes in simple words. Without it, a built-in offline explanation is used.')}</p>
           <Field label={t('Provider')}>
-            <select value={settings.aiProvider} onChange={(e) => setSettings({ aiProvider: e.target.value as AiProvider })}>
-              <option value="builtin">{t('On-device (Chrome built-in AI) · private, offline')}</option>
-              <option value="custom">{t('Custom (OpenAI-compatible, your own free key)')}</option>
-              <option value="off">{t('Off')}</option>
-            </select>
+            <Select value={settings.aiProvider} onChange={(v) => setSettings({ aiProvider: v as AiProvider })} label={t('Provider')} options={[
+              { value: 'builtin', label: t('On-device (Chrome built-in AI) · private, offline') },
+              { value: 'custom', label: t('Custom (OpenAI-compatible, your own free key)') },
+              { value: 'off', label: t('Off') },
+            ]} />
           </Field>
           <p className="small ui">{status}</p>
           {settings.aiProvider === 'custom' && (
@@ -127,6 +144,8 @@ export default function Settings() {
           </div>
           <NotesIHave />
           <Switch checked={settings.sounds} onChange={(v) => setSettings({ sounds: v })} label={t('Sounds')} hint={t('A quiet punch-clock sound when a half is captured.')} />
+          <OptionCard checked={settings.keepMarkPic} onChange={(v) => setSettings({ keepMarkPic: v })} title={t('Keep a small blurred picture of the received mark as evidence')} text={t('Off by default. When on, a 96 px blurred, low-contrast picture of the RECEIVED box is kept on this device only. It is never a fingerprint and never identifies anyone.')} />
+          <MarkPics />
           <Switch checked={settings.scannerDebug} onChange={(v) => setSettings({ scannerDebug: v })} label={t('Scanner debug')} hint={t('Shows corner squares found, px per mm, paper and background brightness and cell counts on the camera picture. No names or card data.')} />
         </div>
         <div className="panel stack">

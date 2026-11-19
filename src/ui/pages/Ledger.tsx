@@ -8,6 +8,8 @@ import { formatMoney, formatCode, cardCode, MONTH_NAMES } from '../../core/card'
 import { VERDICT_LABEL, verdictTone } from '../../vision/pair';
 import { sheetSvg } from '../../render/sheet';
 import { printHTML } from '../imageIO';
+import { Empty } from '../components/Empty';
+import { ThumbChip } from '../components/ThumbChip';
 
 function demoChain(): Receipt[] {
   let c: Receipt[] = [];
@@ -89,7 +91,7 @@ export default function Ledger() {
       )}
       <div className="panel">
         <h2>Payday receipts</h2>
-        {ledger.length === 0 ? <p className="muted">No receipts yet.</p> : (
+        {ledger.length === 0 ? <Empty action={<a className="btn primary" href="#/scan">📷 Payday scan</a>}>No receipts yet.</Empty> : (
           <div className="table-wrap">
             <table className="table stackable">
               <thead><tr><th>#</th><th>Date</th><th>Card</th><th>Worker</th><th>Month</th><th>Verdict</th><th className="num">Net</th><th>Hash</th></tr></thead>
@@ -101,7 +103,7 @@ export default function Ledger() {
                     <td data-label={t('Card')} data-notranslate>{r.cardId}</td>
                     <td data-label={t('Worker')}><Party role="worker" name={r.worker} size={26} compact /><div style={{ marginTop: 3 }}><Party role="employer" name={r.employer} size={20} compact /></div></td>
                     <td data-label={t('Month')} className="date">{r.month}</td>
-                    <td data-label={t('Verdict')}><span className={'chip ' + verdictTone(r.verdict)}>{t(VERDICT_LABEL[r.verdict])}</span></td>
+                    <td data-label={t('Verdict')}><span className={'chip ' + verdictTone(r.verdict)}>{t(VERDICT_LABEL[r.verdict])}</span>{r.verdict === 'paid' && <> <ThumbChip rec={r} /></>}</td>
                     <td data-label={t('Net')} className="num" data-notranslate>{formatMoney(r.netMinor, r.currency)}{r.wage && <div className="chip warn small">{t('wage adjusted')}: {r.wage.ranges.map((g) => `${g.fromDay}–${g.toDay} @ ${formatMoney(g.rateMinor, r.currency)}`).join(', ')}</div>}</td>
                     <td data-label={t('Hash')} data-notranslate><code>{r.hash.slice(0, 10)}</code></td>
                   </tr>
@@ -113,7 +115,7 @@ export default function Ledger() {
       </div>
       <div className="panel">
         <h2>Cards issued</h2>
-        {cards.length === 0 ? <p className="muted">No saved cards yet.</p> : (
+        {cards.length === 0 ? <Empty action={<a className="btn primary" href="#/issue">＋ New card</a>}>No saved cards yet.</Empty> : (
           <div className="table-wrap">
             <table className="table stackable">
               <thead><tr><th>Card</th><th>Worker</th><th>Employer</th><th>Month</th><th>Code</th><th>Actions</th></tr></thead>

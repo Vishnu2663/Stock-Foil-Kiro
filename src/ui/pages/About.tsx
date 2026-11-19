@@ -38,6 +38,15 @@ export default function About() {
         </div>
       </div>
       <div className="panel">
+        <h2>The thumb impression, kept honest</h2>
+        <p className="ui">For generations, workers who were paid in cash pressed an inked thumb next to their name in the employer's pay register as proof that they received the wage. The register stayed with the employer. Here the worker presses the thumb on <b>both</b> halves, so each side keeps its own proof.</p>
+        <ul className="limits">
+          <li>It is a received mark, not fingerprint recognition: the app only checks that ink is present and whether it looks like a thumb mark, a signature or a smudge.</li>
+          <li>No fingerprint image is stored. A small blurred picture is kept only if you turn that on in Settings, and only on this device.</li>
+          <li>Older cards without the RECEIVED box still work; the result says the received mark is not available.</li>
+        </ul>
+      </div>
+      <div className="panel">
         <h2>Built with free, local-first tech</h2>
         <p className="ui">React + TypeScript + Vite · jsQR (QR decoding, Apache-2.0) · qrcode (MIT) · custom computer vision (homography, corner-square refinement, cut-edge tracing) · Web Speech for read-aloud · Chrome’s built-in on-device AI or your own free key for plain-language explanations · everything runs in the browser and works offline as a PWA.</p>
         <p className="small ui muted">Property-based tests (fast-check, spec-driven with Kiro) generate thousands of simulated photos with rotation, blur, noise and lighting changes, plus wage-math and tamper properties. See <code>.kiro/specs</code> and <code>tests/</code>. MIT licence · <a href="https://github.com/Vishnu2663/Stock-Foil-Kiro" target="_blank" rel="noopener noreferrer">GitHub</a></p>

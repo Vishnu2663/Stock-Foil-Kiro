@@ -6,6 +6,8 @@ import { loadLedger, loadOwed, download, toCSV } from '../../store/index';
 import { buildHistory, receiptDays, verifyChain, type HistoryFilter } from '../../core/history';
 import { formatMoney, monthKey, MONTH_NAMES } from '../../core/card';
 import { VERDICT_LABEL, verdictTone } from '../../vision/pair';
+import { Empty } from '../components/Empty';
+import { ThumbChip } from '../components/ThumbChip';
 
 export default function History() {
   const { t } = useApp();
@@ -31,9 +33,9 @@ export default function History() {
         <a href="#/ledger" className={'chain-pill ' + (chainOk ? 'good' : 'bad')}>🔗 {chainOk ? t('Chain intact') : t('Chain broken')}</a>
       </div>
       <div className="row hist-filters" role="group" aria-label={t('Filter')}>
-        {(['all', 'unpaid', 'paid', 'unmarked'] as const).map((s) => (
+        {(['all', 'unpaid', 'paid', 'unmarked', 'nomark'] as const).map((s) => (
           <button key={s} className="fchip" aria-pressed={status === s} onClick={() => setStatus(s)}>
-            {s === 'all' ? t('All') : s === 'paid' ? '💰 ' + t('Paid') : s === 'unpaid' ? '⏳ ' + t('Yet to pay') : t('Not marked')}
+            {s === 'all' ? t('All') : s === 'paid' ? '💰 ' + t('Paid') : s === 'unpaid' ? '⏳ ' + t('Yet to pay') : s === 'nomark' ? t('Paid without received mark') : t('Not marked')}
           </button>
         ))}
         <input className="input hist-search" style={{ flex: 1, minWidth: 200 }} placeholder={t('Search name, month or card')} aria-label={t('Search name, month or card')} value={q} onChange={(e) => setQ(e.target.value)} />
@@ -44,11 +46,7 @@ export default function History() {
         {oneMonth && <div style={{ minWidth: 220 }}><MonthPicker year={ym.year} month={ym.month} onChange={(year, month) => setYm({ year, month })} /></div>}
       </div>
       {months.length === 0 && (
-        <div className="panel">
-          <h2>Nothing here yet</h2>
-          <p className="ui">After a payday scan, press <b>💰 Paid</b> or <b>⏳ Yet to pay</b>. The scan lands here.</p>
-          <a className="btn primary" href="#/scan">📷 Payday scan</a>
-        </div>
+        <Empty title="Nothing here yet" action={<a className="btn primary" href="#/scan">📷 Payday scan</a>}>After a payday scan, press <b>💰 Paid</b> or <b>⏳ Yet to pay</b>. The scan lands here.</Empty>
       )}
       {months.map((m) => (
         <section key={m.month} className="panel" data-reveal>
@@ -75,7 +73,7 @@ export default function History() {
                     <td data-label={t('Net')} className="num" data-notranslate>{formatMoney(r.scan.netMinor, r.currency)}</td>
                     <td data-label={t('Status')}>
                       {r.status === 'paid'
-                        ? <span className="chip good">{t('Paid')} <span className="date">{new Date(r.paid!.at).toLocaleDateString()}</span></span>
+                        ? <span className="chip good">{t('Paid')} <span className="date">{new Date(r.paid!.at).toLocaleDateString()}</span> <ThumbChip rec={r.paid} /></span>
                         : r.status === 'unpaid'
                           ? <span className="chip warn">⏳ {t('Yet to pay')}</span>
                           : <span className="chip grey">{t('Not marked')}</span>}

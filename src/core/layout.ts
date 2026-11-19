@@ -107,3 +107,14 @@ export function targetsFor(spec: Pick<CardSpec, 'year' | 'month' | 'halves'>): T
 export function dayNumberPos(cell: { x: number; y: number; w: number }, halves: boolean): [number, number] {
   return halves ? [cell.x + cell.w / 2, cell.y + 2.5] : [cell.x + 1.3, cell.y + 3.1];
 }
+
+// ---------------- right panel: one info box and the RECEIVED box (thumb mark at payday) ----------------
+
+/** One box for the card number, the rate and the paired tag (frame mm). */
+export const INFO_BOX = { x: 134, y: 55, w: 44, h: 14 };
+/** The RECEIVED box: double-ruled frame; the worker presses an inked thumb in it on both halves when paid. */
+export const RECEIVED_BOX = { x: 134, y: 72, w: 38, h: 34 };
+/** The plain inner area the detector reads: 2 mm in from the frame, between the label band and the caption band. */
+export const RECEIPT_AREA = { x0: RECEIVED_BOX.x + 2, x1: RECEIVED_BOX.x + RECEIVED_BOX.w - 2, y0: RECEIVED_BOX.y + 6.5, y1: RECEIVED_BOX.y + RECEIVED_BOX.h - 4.5 };
+/** The faint dotted thumb guide inside the area (centre and radii, mm). */
+export const THUMB_GUIDE = { cx: (RECEIPT_AREA.x0 + RECEIPT_AREA.x1) / 2, cy: (RECEIPT_AREA.y0 + RECEIPT_AREA.y1) / 2, rx: 7.5, ry: 9.5 };

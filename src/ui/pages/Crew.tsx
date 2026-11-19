@@ -7,8 +7,14 @@ import { loadCrew, saveCrew, toCSV, download, type CrewRow } from '../../store/i
 import { cashBreakdown, combineCash } from '../../core/cash';
 import { formatMoney } from '../../core/card';
 import { printHTML } from '../imageIO';
+import { Empty } from '../components/Empty';
+import { loadLedger } from '../../store/index';
+import { ThumbChip } from '../components/ThumbChip';
+import { latestPaid } from '../../core/history';
 
 export default function Crew() {
+  const ledger = loadLedger();
+  const paidOf = (cardId: string) => latestPaid(ledger, cardId) ?? null;
   const { t, toast } = useApp();
   const [rows, setRows] = useState<CrewRow[]>(loadCrew);
   const persist = (r: CrewRow[]) => { setRows(r); saveCrew(r); };
@@ -37,7 +43,7 @@ export default function Crew() {
         <button className="btn ghost" onClick={() => { if (confirm(t('Clear the whole crew list?'))) { persist([]); toast(t('Crew cleared.')); } }} disabled={!rows.length}>{t('Clear')}</button>
       </div>
       {rows.length === 0 ? (
-        <div className="panel empty-note"><p className="ui" style={{ margin: 0 }}>No workers yet. Scan a pair, then press <span aria-hidden="true">➕</span> <b>Add to crew payroll</b> on the result.</p></div>
+        <Empty action={<a className="btn primary" href="#/scan">📷 Payday scan</a>}>No workers yet. Scan a pair, then press <span aria-hidden="true">➕</span> <b>Add to crew payroll</b> on the result.</Empty>
       ) : (
         <div id="crew-print" className="stack">
           {byCur.map(([cur, list]) => {
@@ -52,7 +58,7 @@ export default function Crew() {
                         const b = cashBreakdown(r.netMinor, cur);
                         return (
                           <tr key={r.id}>
-                            <td data-label={t('Name')}><Party role="worker" name={r.worker} size={30} compact /><div className="small muted" style={{ marginTop: 4 }}><Party role="employer" name={r.employer} size={22} compact /> · <span className="date">{r.month}</span></div></td>
+                            <td data-label={t('Name')}><Party role="worker" name={r.worker} size={30} compact /> <ThumbChip rec={paidOf(r.cardId)} /><div className="small muted" style={{ marginTop: 4 }}><Party role="employer" name={r.employer} size={22} compact /> · <span className="date">{r.month}</span></div></td>
                             <td data-label={t('Agreed days')} className="num">{r.agreedDays}</td>
                             <td data-label={t('Net')} className="num" data-notranslate>{formatMoney(r.netMinor, cur)}</td>
                             <td data-label={t('Notes')} data-notranslate>{b.notes.map((n) => `${n.value}×${n.count}`).join('  ')}{b.remainderMinor > 0 ? ` + ${formatMoney(b.remainderMinor, cur)}` : ''}{r.netMinor < 0 ? '—' : ''}</td>

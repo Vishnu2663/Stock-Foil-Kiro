@@ -1,6 +1,7 @@
 // Hash-chained receipts, history grouping (§6.7, Phase 8). Pure, no DOM.
 import { sha256Hex } from './pairing';
 import type { RateChange, RateRange, WageSource } from './wages';
+import { paidWithMark, type PaidMark } from './received';
 
 export type Verdict =
   | 'genuine-consistent' | 'genuine-disputed' | 'review' | 'inconclusive'
@@ -24,6 +25,9 @@ export interface ReceiptData {
   /** what the pay was worked out from, when not the printed card wage */
   wage?: { source: WageSource; ranges: RateRange[]; advMinor: number };
   halfUnits?: number;
+  /** a payment: the worker's received mark on the halves, or why it was paid without one */
+  receipt?: PaidMark['receipt'];
+  noMark?: PaidMark['noMark'];
 }
 
 export interface Receipt extends ReceiptData { seq: number; prev: string; hash: string }
@@ -39,6 +43,8 @@ export function receiptString(r: Omit<Receipt, 'hash'>): string {
   if (r.rateChange) parts.push(`rc:${r.rateChange.fromDay}:${r.rateChange.rateMinor}`);
   if (r.halfUnits !== undefined) parts.push(`hu:${r.halfUnits}`);
   if (r.wage) parts.push(`wg:${r.wage.source}:${r.wage.advMinor}:${r.wage.ranges.map((g) => `${g.fromDay}-${g.toDay}@${g.rateMinor}`).join(',')}`);
+  if (r.receipt) parts.push(`rm:${r.receipt.stock}:${r.receipt.foil}:${r.receipt.checkedAt}${r.receipt.signature ? ':sig' : ''}`);
+  if (r.noMark) parts.push(`nm:${r.noMark.reason}:${r.noMark.note ?? ''}`);
   parts.push(r.prev);
   return parts.join('|');
 }
@@ -52,6 +58,8 @@ export function appendReceipt(chain: Receipt[], data: ReceiptData): Receipt[] {
   if (data.rateChange === undefined) delete (base as Partial<Receipt>).rateChange;
   if (data.halfUnits === undefined) delete (base as Partial<Receipt>).halfUnits;
   if (data.wage === undefined) delete (base as Partial<Receipt>).wage;
+  if (data.receipt === undefined) delete (base as Partial<Receipt>).receipt;
+  if (data.noMark === undefined) delete (base as Partial<Receipt>).noMark;
   return [...chain, { ...base, hash: hashReceipt(base) }];
 }
 
@@ -103,7 +111,7 @@ export interface HistoryMonth {
 }
 
 /** `owed`: cards the user marked "yet to pay". When given, other unpaid scans are "unmarked" (saved only). */
-export interface HistoryFilter { status?: 'all' | 'paid' | 'unpaid' | 'unmarked'; month?: string; query?: string; owed?: Set<string> }
+export interface HistoryFilter { status?: 'all' | 'paid' | 'unpaid' | 'unmarked' | 'nomark'; month?: string; query?: string; owed?: Set<string> }
 
 export function buildHistory(chain: Receipt[], filter: HistoryFilter = {}): HistoryMonth[] {
   const byCard = new Map<string, HistoryRow>();
@@ -126,7 +134,8 @@ export function buildHistory(chain: Receipt[], filter: HistoryFilter = {}): Hist
     } else if (filter.owed && !filter.owed.has(row.cardId)) {
       row.status = 'unmarked';
     }
-    if (filter.status && filter.status !== 'all' && row.status !== filter.status) continue;
+    if (filter.status === 'nomark') { if (row.status !== 'paid' || (row.paid && paidWithMark(row.paid))) continue; }
+    else if (filter.status && filter.status !== 'all' && row.status !== filter.status) continue;
     if (filter.month && row.month !== filter.month) continue;
     if (q && !`${row.worker} ${row.employer} ${row.cardId}`.toLowerCase().includes(q)) continue;
     let m = months.get(row.month);

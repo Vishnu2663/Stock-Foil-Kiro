@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { encodePayload, formatCode, formatMoney, cardCode, MONTH_NAMES, type CardSpec, type Role } from '../core/card';
 import {
   A4, FRAME_W, FRAME_H, FIDUCIALS, FID_SIZE, QR_BOX, HOLE_R, STOCK_ORIGIN, FOIL_ORIGIN,
-  NOMINAL_CUT_Y, targetsFor, ADV, GRID, type Target,
+  NOMINAL_CUT_Y, targetsFor, ADV, GRID, INFO_BOX, RECEIVED_BOX, THUMB_GUIDE, type Target,
 } from '../core/layout';
 import { makeWave, wavePath } from '../core/wave';
 
@@ -76,6 +76,81 @@ function stubPath(x: number, y: number, w: number, h: number): string {
   return `M${x} ${y}H${x + w}V${my - r}A${r} ${r} 0 0 0 ${x + w} ${my + r}V${y + h}H${x}V${my + r}A${r} ${r} 0 0 0 ${x} ${my - r}Z`;
 }
 
+// ---------------- right panel text in the card's language ----------------
+
+export const PANEL_TEXT: Record<string, { day: string; adv: string; paired: string; received: string; S: string; F: string }> = {
+  en: { day: '/day', adv: 'advance', paired: '✓ Paired', received: 'RECEIVED', S: 'Worker presses thumb here when paid', F: "Worker's thumb here too, when paid" },
+  hi: { day: '/दिन', adv: 'अग्रिम', paired: '✓ जोड़ी', received: 'प्राप्त', S: 'वेतन मिलने पर मज़दूर यहाँ अँगूठा लगाए', F: 'भुगतान पर यहाँ भी मज़दूर का अँगूठा' },
+  bn: { day: '/দিন', adv: 'অগ্রিম', paired: '✓ জোড়া', received: 'প্রাপ্ত', S: 'মজুরি পেলে শ্রমিক এখানে টিপসই দিন', F: 'মজুরি পেলে এখানেও শ্রমিকের টিপসই' },
+  ta: { day: '/நாள்', adv: 'முன்பணம்', paired: '✓ இணை', received: 'பெற்றது', S: 'கூலி பெற்றதும் தொழிலாளி இங்கு கைநாட்டு', F: 'கூலி பெற்றதும் இங்கும் கைநாட்டு' },
+  es: { day: '/día', adv: 'anticipo', paired: '✓ Pareada', received: 'RECIBIDO', S: 'El trabajador pone su pulgar aquí al cobrar', F: 'Pulgar del trabajador aquí también, al cobrar' },
+  sw: { day: '/siku', adv: 'malipo ya awali', paired: '✓ Jozi', received: 'IMEPOKELEWA', S: 'Mfanyakazi abonyeze kidole gumba hapa akilipwa', F: 'Kidole gumba cha mfanyakazi hapa pia, akilipwa' },
+};
+export const panelText = (lang: string) => PANEL_TEXT[lang] ?? PANEL_TEXT[lang.split('-')[0]] ?? PANEL_TEXT.en;
+/** Estimated width (mm) of monospace text at a font size (glyphs ≈ 0.6 em). */
+export const textWidth = (t: string, size: number) => [...t].length * 0.6 * size;
+/** Split into at most two lines that fit maxW at size (at a space near the middle). */
+export function fitLines(t: string, maxW: number, size: number): string[] {
+  if (textWidth(t, size) <= maxW) return [t];
+  const words = t.split(' ');
+  let best = [t], worst = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const l = [words.slice(0, i).join(' '), words.slice(i).join(' ')];
+    const w = Math.max(...l.map((x) => textWidth(x, size)));
+    if (w < worst) { worst = w; best = l; }
+  }
+  return best;
+}
+/** A text element that never overflows maxW: squeezed with textLength when the estimate is wider. */
+function fitText(x: number, y: number, t: string, size: number, maxW: number, attrs: string): string {
+  const w = textWidth(t, size);
+  const squeeze = w > maxW ? ` textLength="${maxW.toFixed(2)}" lengthAdjust="spacingAndGlyphs"` : '';
+  return `<text x="${x}" y="${y}" font-size="${size}"${squeeze} ${attrs}>${esc(t)}</text>`;
+}
+
+/** The merged info box: "№ code" on line 1, "₹700/day · advance ₹100" on line 2, and a "✓ Paired" tag. */
+export function infoBoxSvg(spec: CardSpec, code: string, lang: string): string {
+  const { x, y, w, h } = INFO_BOX;
+  const L = panelText(lang);
+  const money = (m: number) => formatMoney(m, spec.currency);
+  const out: string[] = [box(x, y, w, h)];
+  const tag = spec.pairing ? L.paired : '';
+  const tagW = tag ? textWidth(tag, 2.1) + 2 : 0;
+  out.push(fitText(x + 2, y + 6, `№ ${code}`, 3.6, w - 4 - tagW, `font-weight="700" letter-spacing="0.2" fill="${C.ink}"`));
+  if (tag) out.push(`<text x="${x + w - 1.8}" y="${y + 5.2}" font-size="2.1" font-weight="700" text-anchor="end" fill="${C.green}">${esc(tag)}</text>`);
+  out.push(fitText(x + 2, y + 11, `${money(spec.rateMinor)}${L.day} · ${L.adv} ${money(spec.advMinor)}`, 2.2, w - 4, `fill="${C.soft}"`));
+  return out.join('');
+}
+
+/** A small SVG thumb glyph (concentric loops), w ≈ 3.2 × 4 mm. */
+const thumbGlyph = (x: number, y: number, col: string) => {
+  const st = `fill="none" stroke="${col}" stroke-width="0.22" stroke-linecap="round"`;
+  return `<ellipse cx="${x + 1.6}" cy="${y + 2}" rx="1.5" ry="1.95" ${st}/>` +
+    `<path d="M${x + 0.7} ${y + 3.1} Q${x + 0.5} ${y + 1} ${x + 1.6} ${y + 0.9} Q${x + 2.7} ${y + 1} ${x + 2.5} ${y + 3.1}" ${st}/>` +
+    `<path d="M${x + 1.1} ${y + 3.2} Q${x + 1} ${y + 1.6} ${x + 1.6} ${y + 1.6} Q${x + 2.2} ${y + 1.6} ${x + 2.1} ${y + 3.2}" ${st}/>`;
+};
+
+/** The RECEIVED box: double-ruled frame, a plain light inner area, a faint dotted thumb guide, label and caption. */
+export function receivedBoxSvg(role: Role, lang: string): string {
+  const { x, y, w, h } = RECEIVED_BOX;
+  const L = panelText(lang);
+  const g = THUMB_GUIDE;
+  const out: string[] = [
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#fff" stroke="${C.line}" stroke-width="0.35"/>`,
+    `<rect x="${x + 0.9}" y="${y + 0.9}" width="${w - 1.8}" height="${h - 1.8}" fill="none" stroke="${C.rule}" stroke-width="0.15"/>`,
+    // the faint guide: light enough (≥ 0.85 of paper) that the detector ignores it
+    `<ellipse cx="${g.cx}" cy="${g.cy}" rx="${g.rx}" ry="${g.ry}" fill="none" stroke="${RECEIPT_GUIDE}" stroke-width="0.25" stroke-dasharray="0.4 1.1"/>`,
+    thumbGlyph(x + 2.2, y + 1.8, C.stamp),
+    fitText(x + 6.4, y + 5, L.received, 2.8, w - 8.5, `font-weight="700" letter-spacing="0.4" fill="${C.stamp}"`),
+  ];
+  const lines = fitLines(role === 'S' ? L.S : L.F, w - 3, 1.5);
+  const base = lines.length > 1 ? y + h - 3.1 : y + h - 1.8;
+  lines.forEach((ln, i) => out.push(fitText(x + w / 2, base + i * 1.75, ln, 1.5, w - 3, `text-anchor="middle" fill="${C.soft}"`)));
+  return out.join('');
+}
+/** Colour of the dotted thumb guide (luminance ≈ 0.9 of the paper). */
+export const RECEIPT_GUIDE = '#e3dccd';
+
 /** A double-ruled info box on the right panel with an inner hairline inset 0.8. */
 function box(x: number, y: number, w: number, h: number): string {
   return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${C.box}" stroke="${C.line}" stroke-width="0.3"/>` +
@@ -92,7 +167,6 @@ export function halfSvg(spec: CardSpec, role: Role, opts: HalfOptions = {}): str
   const qr = qrMatrix(payload);
   const targets = targetsFor(spec);
   const code = formatCode(cardCode(spec));
-  const money = (m: number) => esc(formatMoney(m, spec.currency));
   const word = role === 'S' ? 'STOCK' : 'FOIL';
   const keeps = role === 'S' ? 'worker keeps' : 'employer keeps';
   const p: string[] = [];
@@ -145,18 +219,9 @@ export function halfSvg(spec: CardSpec, role: Role, opts: HalfOptions = {}): str
   p.push(`<text x="${ADV.x}" y="${ADV.y - 2}" font-size="2.4" font-weight="700" letter-spacing="0.25" fill="${C.ink}">${esc(`ADVANCES TAKEN (EACH = ${formatMoney(spec.advMinor, spec.currency)})`)}</text>`);
   // QR (fills its 38 mm box)
   p.push(`<path d="${qrPath(qr)}" fill="${C.mark}"/>`);
-  // right panel: card code, rate, paired
-  const px = 134, pw = 44, mid = px + pw / 2;
-  p.push(box(px, 55, pw, 13));
-  p.push(`<text x="${mid}" y="59.3" font-size="2.2" letter-spacing="0.5" text-anchor="middle" fill="${C.soft}">CARD</text>`);
-  p.push(`<text x="${mid}" y="65" font-size="4" font-weight="700" letter-spacing="0.3" text-anchor="middle" fill="${C.ink}">№ ${esc(code)}</text>`);
-  p.push(box(px, 70.5, pw, 13));
-  p.push(`<text x="${mid}" y="77" font-size="4" font-weight="700" text-anchor="middle" fill="${C.ink}">${money(spec.rateMinor)}<tspan font-size="2.4" font-weight="400" font-style="italic" fill="${C.soft}"> / day</tspan></text>`);
-  p.push(`<text x="${mid}" y="81.2" font-size="2.2" text-anchor="middle" fill="${C.soft}">advance token ${money(spec.advMinor)}</text>`);
-  if (spec.pairing) {
-    p.push(box(px, 86, pw, 9));
-    p.push(`<text x="${mid}" y="91.6" font-size="2.6" font-weight="700" text-anchor="middle" fill="${C.green}">✓ Paired card</text>`);
-  }
+  // right panel: ONE info box (№ code · rate · advance · paired), then the RECEIVED box
+  p.push(infoBoxSvg(spec, code, lang));
+  if (spec.receiptBox) p.push(receivedBoxSvg(role, lang));
   // footer
   const fy = FRAME_H - 3.5, right = FRAME_W - 14;
   if (spec.discs) p.push(`<text x="${right}" y="${FRAME_H - 7.4}" font-size="2.4" font-weight="700" text-anchor="end" fill="${C.ink}">Punch out each grey disc.</text>`);

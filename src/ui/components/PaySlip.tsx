@@ -13,6 +13,8 @@ import { NoteStacks } from './Banknote';
 import { Avatar, partyText } from './Party';
 import { Typer } from './Motion';
 import { useApp } from '../ctx';
+import { ThumbArt } from './PaySteps';
+import type { PaidMark } from '../../core/received';
 
 /** Decorative bars made from the card id (not a real barcode). */
 function bars(id: string): number[] {
@@ -24,9 +26,11 @@ function bars(id: string): number[] {
 export interface PaySlipProps {
   spec: CardSpec; view: PayView; model: PaydayModel; wage: WageSchedule; level: Level;
   disputed: boolean; paidAt?: string; dealKey: string;
+  /** the worker's received mark recorded with the payment */
+  received?: PaidMark['receipt'];
 }
 
-export function PaySlip({ spec, view, model, wage, level, disputed, paidAt, dealKey }: PaySlipProps) {
+export function PaySlip({ spec, view, model, wage, level, disputed, paidAt, dealKey, received }: PaySlipProps) {
   const { t, settings } = useApp();
   const instant = motionEnv().reduced;
   const monthTxt = new Intl.DateTimeFormat(spec.lang || 'en', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(spec.year, spec.month - 1, 1))).toUpperCase();
@@ -90,7 +94,12 @@ export function PaySlip({ spec, view, model, wage, level, disputed, paidAt, deal
         {paidAt && <span className={'wp-stamp paid' + (slam ? ' slam' : '')}>{t('PAID')}</span>}
       </div>
       <div className="wp-sign">
-        <div><span className="ln" />{t('Received by {0}', w.owner)} ✍</div>
+        <div className="wp-received">
+          <span className="wp-rbox">{received && received.stock !== 'none' && received.foil !== 'none' && <ThumbArt size={30} className="on-slip" />}</span>
+          <span><small>{t('RECEIVED BY')}</small><b data-notranslate>{w.name}</b> <i>({t('worker')})</i>
+            {received && <em className="wp-rnote">{(received.signature || received.stock === 'signature') ? t('signature on both halves, checked {0}', new Date(received.checkedAt).toLocaleDateString(spec.lang || undefined)) : t('thumb mark on both halves, checked {0}', new Date(received.checkedAt).toLocaleDateString(spec.lang || undefined))}</em>}
+          </span>
+        </div>
         <div><span className="ln" />{t('Paid by {0}', e.owner)} ✍</div>
         <div className="paid-on">{t('Paid on')} <span className="ln short">{paidAt ? new Date(paidAt).toLocaleDateString(spec.lang || undefined) : ''}</span></div>
       </div>

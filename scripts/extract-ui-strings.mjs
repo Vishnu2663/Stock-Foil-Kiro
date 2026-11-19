@@ -11,7 +11,7 @@ const OUT = join(ROOT, 'src/i18n/ui/source.json');
 const ATTRS = new Set(['placeholder', 'title', 'aria-label', 'alt', 'label', 'hint']);
 const PROPS = new Set(['title', 'hint', 'label', 'text']);
 const TABLES = new Set(['VERDICT_LABEL', 'WARNING_TEXT']);
-const EXTRA_FILES = ['src/vision/pair.ts', 'src/vision/detect.ts', 'src/vision/calibrate.ts'];
+const EXTRA_FILES = ['src/vision/pair.ts', 'src/vision/detect.ts', 'src/vision/calibrate.ts', 'src/core/received.ts'];
 
 const decode = (s) => s.replace(/&amp;/g, '&').replace(/&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, '\u00a0');
 const norm = (s) => decode(s).replace(/\s+/g, ' ').trim();

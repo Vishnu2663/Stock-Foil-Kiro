@@ -9,6 +9,7 @@ import { Thumbs } from '../components/SimView';
 import { HeroCard } from '../components/HeroCard';
 import { Logo } from '../components/Brand';
 import { verdictTone } from '../../vision/pair';
+import { Select } from '../components/Select';
 
 const LIVE: Record<number, ScenarioId> = { 3: 'claim', 4: 'extra', 5: 'sloppy', 6: 'forgedFit' };
 const CAPTIONS = [
@@ -219,21 +220,20 @@ export default function Story() {
               <span className="track" aria-hidden="true" /><span>🔊 {t('Narrate')}</span>
             </label>
           )}
-          <select className="input lang-select" aria-label={t('Story language')} value={lang} onChange={(e) => { setLang(e.target.value); stopSpeaking(); }}>
-            {storyLangs().map((l) => <option key={l} value={l}>{langInfo(l).name}</option>)}
-          </select>
+          <Select className="lang-select" label={t('Story language')} value={lang} onChange={(v) => { setLang(v); stopSpeaking(); }} options={storyLangs().map((l) => ({ value: l, label: langInfo(l).name }))} />
         </div>
       </div>
       {narrate && speechSupported() && (
         <div className="row story-voice ui small">
-          <select className="input" aria-label={t('Voice')} value={voiceURI} onChange={(e) => setVoiceURI(e.target.value)}>
-            <option value="">{t('Best voice')}</option>
-            {ranked.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name}{isRobotic(v) ? ' (robotic)' : ''}</option>)}
-          </select>
+          <Select label={t('Voice')} value={voiceURI} onChange={setVoiceURI} options={[{ value: '', label: t('Best voice') }, ...ranked.map((v) => ({ value: v.voiceURI, label: v.name + (isRobotic(v) ? ' (robotic)' : '') }))]} />
           <label className="row" style={{ gap: 8 }}>{t('Pace')}<input type="range" min={0.6} max={1.2} step={0.05} value={pace} onChange={(e) => setPace(Number(e.target.value))} aria-label={t('Narration pace')} style={{ width: 140 }} /><span data-notranslate>{pace.toFixed(2)}</span></label>
           {(onlyRobotic || (ranked.length === 0 && voices.length > 0)) && <span className="warn-text">{ranked.length === 0 ? t('No voice for this language on this device. The text is still shown.') : t('Only a robotic voice is available for this language on this device.')}</span>}
         </div>
       )}
+      <div className="panel story-thumb">
+        <h2>{t('The thumb impression')}</h2>
+        <p className="ui">{t('Workers who could not sign pressed an inked thumb in the employer\'s pay register when they were paid, and the register stayed with the employer. On a Stock & Foil card the worker presses the thumb on both halves, so each side keeps its own proof. What you need on payday: the two halves and a thumb ink pad.')}</p>
+      </div>
       <ol className="story-steps" aria-label={t('Chapters')} style={{ ['--sp' as string]: idx / Math.max(1, chapters.length - 1) }}>
         {chapters.map((c, i) => (
           <li key={i} className={i === idx ? 'on' : i < idx ? 'done' : ''}>

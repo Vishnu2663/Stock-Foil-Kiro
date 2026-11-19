@@ -15,6 +15,10 @@ import { disputedDays, wageScheduleFor, defaultWageSource, applyChanges, sameSch
 import { memberForCard, wagesOf } from '../../core/members';
 import { paydayModel } from '../payday';
 import { PaySlip } from '../components/PaySlip';
+import { Sheet } from '../components/Popover';
+import { PaySteps } from '../components/PaySteps';
+import { alreadyMarked, applyPaidMark, paidMark, paidWithMark, type PaidMark } from '../../core/received';
+import type { ReceiptRead } from '../../vision/receipt';
 import { addReceipt, loadLedger, loadCrew, saveCrew, loadMembers, loadCards } from '../../store/index';
 import { paidInfo } from '../../core/settlement';
 import { monthKey, parseMajor, clampAmount, formatMoney, type CardSpec } from '../../core/card';
@@ -22,6 +26,7 @@ import type { ReceiptData } from '../../core/history';
 import { speak, stopSpeaking } from '../../ai/speech';
 import { explain, type PayFacts } from '../../ai/index';
 import { langInfo } from '../../i18n/index';
+import { SCAN_RESET } from '../routes';
 
 export function factsOf(result: PairResult, rateChange?: RateChange, wage?: WageSchedule): PayFacts | null {
   const v = result.pay?.agreed;
@@ -67,10 +72,18 @@ export default function Scan() {
   const [explainText, setExplainText] = useState<{ text: string; note?: string } | null>(null);
   const [savedKey, setSavedKey] = useState('');
   const [ledgerVersion, setLedgerVersion] = useState(0);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
+  const [askAgain, setAskAgain] = useState(false);
+  const [sigMode, setSigMode] = useState(false);
+  const [inkPress, setInkPress] = useState(0);
+  const [paidNote, setPaidNote] = useState<{ msg: string; warn: boolean } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const slipRef = useRef<HTMLDivElement>(null);
 
   const { stock, foil } = useMemo(() => pickHalves(halves), [halves]);
+  const halvesRef = useRef(halves);
+  halvesRef.current = halves;
   const have = { S: !!stock, F: !!foil };
 
   const rateChange = undefined as RateChange | undefined;
@@ -108,6 +121,27 @@ export default function Scan() {
     requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: document.body.classList.contains('reduced') ? 'auto' : 'smooth', block: 'start' }));
   }, []);
   const openJoin = useCallback(() => { setCamMode('join'); setCamera(true); window.scrollTo({ top: 0 }); }, []);
+  // "Check the cut": the new photos replace ONLY the cut-edge data; punch reads and corrections stay.
+  // If the new photos read the holes differently, ask which reads to keep.
+  const [joinAsk, setJoinAsk] = useState<HalfScan[] | null>(null);
+  const onEdges = useCallback((news: HalfScan[]) => {
+    const EDGE_W = ['edge-hidden', 'dark-surface', 'edge-surface'];
+    const punchedOf = (h: HalfScan) => h.cells.filter((c) => c.punched).map((c) => c.key).sort().join(',');
+    const same = (h: HalfScan) => news.find((x) => x.decoded.role === h.decoded.role && x.decoded.spec.id === h.decoded.spec.id);
+    const differs = halvesRef.current.some((h) => { const n = same(h); return !!n && punchedOf(n) !== punchedOf(h); });
+    setHalves((list) => list.map((h) => {
+      const n = same(h);
+      if (!n) return h;
+      return { ...h, edge: n.edge, edgeCoverage: n.edgeCoverage, warnings: h.warnings.filter((w) => !EDGE_W.includes(w)) };
+    }));
+    setSavedKey('');
+    if (differs) setJoinAsk(news);
+  }, []);
+  const useNewReads = () => {
+    if (!joinAsk) return;
+    setHalves((list) => list.map((h) => { const n = joinAsk.find((x) => x.decoded.role === h.decoded.role && x.decoded.spec.id === h.decoded.spec.id); return n ? { ...h, cells: n.cells } : h; }));
+    setJoinAsk(null); setSavedKey('');
+  };
 
   // Save the scan to the ledger once per result (never for an unreliable photo).
   const saveScan = useCallback((force = false) => {
@@ -162,10 +196,14 @@ export default function Scan() {
     }
   };
 
+  useEffect(() => {
+    try { if (sessionStorage.getItem(SCAN_RESET)) { sessionStorage.removeItem(SCAN_RESET); reset(); } } catch { /* private mode */ }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const onDrop = (e: DragEvent) => { e.preventDefault(); setOver(false); if (e.dataTransfer.files?.length) readFiles(e.dataTransfer.files); };
 
   const reset = () => {
-    setHalves([]); setOverrides({ S: {}, F: {} }); setWageSrc(null); setCustom(null); setExplainText(null); setSavedKey(''); stopSpeaking();
+    setHalves([]); setOverrides({ S: {}, F: {} }); setWageSrc(null); setPayOpen(false); setPaidNote(null); setAskAgain(false); setJoinAsk(null); setCustom(null); setExplainText(null); setSavedKey(''); stopSpeaking();
   };
 
   const toggle = (role: 'S' | 'F') => (key: string) => {
@@ -182,14 +220,35 @@ export default function Scan() {
     setSavedKey('');
   };
 
+  // "Mark as paid": when both halves already carry the worker's mark, ask once more; then the step sheet.
   const markPaid = () => {
+    if (!result || !canSave || !result.pay) return;
+    if (alreadyMarked(result.mark ?? { state: 'none' }) && !askAgain) { setAskAgain(true); return; }
+    setAskAgain(false);
+    setPayOpen(true);
+  };
+  /** Save the payment with what is known about the worker's received mark. */
+  const recordPaid = (mark: PaidMark) => {
     if (!result || !canSave || !result.pay) return;
     saveScan();
     const r = receiptOf(result, rateChange, wage ?? undefined)!;
-    addReceipt({ ...r, verdict: 'paid', at: new Date().toISOString() });
+    addReceipt({ ...r, verdict: 'paid', at: new Date().toISOString(), ...mark });
     setLedgerVersion((v) => v + 1);
-    toast(t('Marked as paid: {0}', formatMoney(result.pay.agreed.net, spec!.currency)), 'good');
+    setPayOpen(false);
+    if (mark.receipt) setInkPress((n) => n + 1);
+    const msg = t('Marked as paid: {0}', formatMoney(result.pay.agreed.net, spec!.currency)) + (mark.noMark ? ' · ' + t('without a received mark') : '');
+    // Below 1000 px the slip is full width and can fill the screen, so a floating toast could cover it: the
+    // message is shown in place, next to the Paid button, instead.
+    if (typeof matchMedia === 'function' && matchMedia('(max-width: 1000px)').matches) setPaidNote({ msg, warn: !!mark.noMark });
+    else toast(msg, mark.noMark ? 'warn' : 'good');
   };
+  const onReceipt = (cap: { S?: ReceiptRead; F?: ReceiptRead }) => {
+    const ok = cap.S?.status === 'present' && cap.F?.status === 'present';
+    if (!ok) { toast(t('The received mark is not on both halves yet.'), 'warn'); setPayOpen(true); return; }
+    recordPaid(paidMark(cap, new Date().toISOString(), sigMode));
+    setSigMode(false);
+  };
+  const openReceiptCam = (sig: boolean) => { setSigMode(sig); setPayOpen(false); setCamMode('receipt'); setCamera(true); window.scrollTo({ top: 0 }); };
 
   const addToCrew = () => {
     if (!result || !spec || !result.pay || !canSave) return;
@@ -206,7 +265,9 @@ export default function Scan() {
 
   const listen = () => {
     if (!spec || !result?.pay) return;
-    speak((model?.listen ?? '') + ' ' + spokenResult(spec, result.pay.agreed), { lang: langInfo(spec.lang).speech, rate: settings.speakRate });
+    const got = paid && !paid.changed && paid.paid.receipt && paidWithMark(paid.paid)
+      ? ' ' + t('{0}, the worker, put his thumb mark on both halves: payment received.', spec.worker || t('the worker')) : '';
+    speak((model?.listen ?? '') + ' ' + spokenResult(spec, result.pay.agreed) + got, { lang: langInfo(spec.lang).speech, rate: settings.speakRate });
   };
 
   const doExplain = async () => {
@@ -271,6 +332,16 @@ export default function Scan() {
     </div>
   ) : null;
 
+  const extras = result ? (
+    <>
+      <button className="btn icon-btn rv-extra" onClick={addToCrew} disabled={!canSave} title={t('Add to crew')}><Icon name="crew" /><span>{t('Add to crew')}</span></button>
+      <button className="btn icon-btn rv-extra" onClick={printSlip} disabled={!canSave} title={t('Print slip')}><Icon name="print" /><span>{t('Print slip')}</span></button>
+      <button className="btn icon-btn rv-extra" onClick={doExplain} disabled={!result.pay || settings.aiProvider === 'off'} title={t('Explain')}>💬<span>{t('Explain')}</span></button>
+      {result.pay && result.pay.agreed.net < 0 && canSave && <button className="btn icon-btn rv-extra" onClick={carryOn} title={t('Carry this balance to next month')}>↪<span>{t('Carry over')}</span></button>}
+    </>
+  ) : null;
+  // the checks show the mark saved with the payment, once there is one (it agrees with the paid banner)
+  const checksView = result ? applyPaidMark(result, paid && !paid.changed ? paid.paid : null) : null;
   const level = result ? celebrationLevel(result) : 'none';
   const rkey = result ? resultKey(result, stock, foil) : '';
   const showResult = !!result && !!spec && !camera;
@@ -280,13 +351,13 @@ export default function Scan() {
   return (
     <div className="stack">
       <h1>Payday scan</h1>
-      <p className="lead">Photograph each half on a dark table. Keep all four corner squares and the wavy edge in view. You can also drag and drop photos here; they are read automatically.</p>
+      {!showResult && <p className="lead">Photograph each half on a dark table. Keep all four corner squares and the wavy edge in view. You can also drag and drop photos here; they are read automatically.</p>}
 
       {!showResult && (
         <div className="stack" onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={(e) => { if (e.currentTarget === e.target) setOver(false); }} onDrop={onDrop}>
           <div className="panel cam-card">
             {camera
-              ? <Camera have={have} onHalf={addHalf} onClose={() => { setCamera(false); setCamMode('halves'); }} onDone={() => { closeCamera(); setCamMode('halves'); }} mode={camMode} />
+              ? <Camera key={camMode} have={camMode === 'halves' ? have : { S: false, F: false }} onHalf={addHalf} onEdges={onEdges} onMode={setCamMode} cardId={spec0?.id} onReceipt={onReceipt} onClose={() => { setCamera(false); setCamMode('halves'); }} onDone={() => { closeCamera(); setCamMode('halves'); }} mode={camMode} />
               : (
                 <div className="cam-intro">
                   <svg className="phone-art" viewBox="0 0 70 120" aria-hidden="true">
@@ -351,9 +422,31 @@ export default function Scan() {
       {showResult && result && spec && (
         <div className="rv" ref={resultRef}>
           <WarningBanner halves={[stock, foil]} />
+          {joinAsk && (
+            <div className="note warn join-ask" role="alertdialog" aria-label={t('Which reads to keep?')}>
+              <b>{t('The cut photo reads the holes differently from the first photos.')}</b>
+              <div className="row">
+                <button className="btn small primary" onClick={() => setJoinAsk(null)}>{t('Keep the first reads')}</button>
+                <button className="btn small" onClick={useNewReads}>{t('Use the new reads')}</button>
+              </div>
+            </div>
+          )}
+          {result.mark?.state === 'both' && !(paid && !paid.changed && paid.paid.receipt) && (
+            <div className="note bad already-paid" role="alert">
+              <b>{t("This card already has the worker's received mark on both halves. It looks like this month was already paid.")}</b>
+              {paid && <div className="small">{t('Ledger: paid on {0}, {1}', new Date(paid.at).toLocaleDateString(), formatMoney(paid.paid.netMinor, spec.currency))}</div>}
+              {askAgain && (
+                <div className="row">
+                  <button className="btn small danger" onClick={markPaid}>{t('Yes, record a payment anyway')}</button>
+                  <button className="btn small ghost" onClick={() => setAskAgain(false)}>{t('Cancel')}</button>
+                </div>
+              )}
+            </div>
+          )}
           {paid && (
             <div className={'note ' + (paid.changed ? 'bad' : 'good')}>
-              {t('Already paid on {0}', new Date(paid.at).toLocaleDateString())}
+              {paid.paid.receipt && paidWithMark(paid.paid) ? t('Paid · received mark on both halves') : t('Already paid on {0}', new Date(paid.at).toLocaleDateString())}
+              {paid.paid.noMark && <> · <span className="warn-text">{t('paid without a received mark')}</span></>}
               {paid.changed && <> · {t('Warning: the amount now differs from the payment ({0}).', formatMoney(paid.paid.netMinor, spec.currency))}</>}
             </div>
           )}
@@ -361,21 +454,25 @@ export default function Scan() {
             result={result}
             rkey={rkey}
             level={level}
+            quiet={!!paid && !paid.changed}
+            inkPress={inkPress}
             onJoin={openJoin}
             model={model ?? undefined}
             onEdit={onEdit}
             wageControl={wageControl}
             actions={(
               <>
-                <button className="btn good big rv-paid" onClick={markPaid} disabled={!canSave || (!!paid && !paid.changed)}>💰 {t('Mark as paid')}</button>
+                <button className="btn good big rv-paid" onClick={markPaid} disabled={!canSave || (!!paid && !paid.changed)}>💰 {paid && !paid.changed ? t('Paid') : t('Mark as paid')}</button>
+                {paidNote && <span className={'paid-note ' + (paidNote.warn ? 'warn' : 'good')} role="status">✓ {paidNote.msg}</span>}
+                <PaySteps open={payOpen} onClose={() => setPayOpen(false)} amountText={model?.amountText ?? ''} cash={model && !model.owes ? model.cash : null} currency={spec.currency}
+                  worker={spec.worker || t('the worker')} hasBox={!!spec.receiptBox} onScan={() => openReceiptCam(false)} onSignature={() => openReceiptCam(true)} onNoMark={(reason) => recordPaid({ noMark: { reason } })} />
                 <div className="rv-icons">
-                  <button className="btn icon-btn" onClick={addToCrew} disabled={!canSave} title={t('Add to crew')}><Icon name="crew" /><span>{t('Add to crew')}</span></button>
-                  <button className="btn icon-btn" onClick={printSlip} disabled={!canSave} title={t('Print slip')}><Icon name="print" /><span>{t('Print slip')}</span></button>
+                  {extras}
                   <button className="btn icon-btn" onClick={listen} disabled={!canSave} title={t('Listen')}><Icon name="speaker" /><span>{t('Listen')}</span></button>
-                  <button className="btn icon-btn" onClick={doExplain} disabled={!result.pay || settings.aiProvider === 'off'} title={t('Explain')}>💬<span>{t('Explain')}</span></button>
-                  {result.pay && result.pay.agreed.net < 0 && canSave && <button className="btn icon-btn" onClick={carryOn} title={t('Carry this balance to next month')}>↪<span>{t('Carry over')}</span></button>}
                   <button className="btn icon-btn" onClick={reset} title={t('Scan another')}><Icon name="scan" /><span>{t('Scan another')}</span></button>
+                  <button className="btn icon-btn rv-more-btn" onClick={() => setMoreOpen(true)} aria-haspopup="dialog" aria-expanded={moreOpen} title={t('More')}><Icon name="more" /><span>{t('More')}</span></button>
                 </div>
+                <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} label={t('More')} className="rv-sheet"><div className="more-grid" onClick={() => setMoreOpen(false)}>{extras}</div></Sheet>
               </>
             )}
           >
@@ -404,13 +501,13 @@ export default function Scan() {
                 <TallyPair stock={stock} foil={foil} oneSided={oneS} overrides={overrides} onToggle={toggle} level={level} rkey={rkey} />
                 {result.comparison && result.comparison.unsureCount > 0 && <p className="small ui rv-hint">{t('Dashed amber circles are unsure. Tap a day to correct it. Corrections are marked manual.')}</p>}
               </Section>
-              <Section title={t('Checks')} extra={<span className="chip check-sum">{t('{0}/{1} checks passed', result.checks.filter((c) => c.ok === true).length, result.checks.length)}</span>}>
-                <CheckTimeline result={result} onJoin={openJoin} rkey={rkey} />
+              <Section title={t('Checks')} phoneClosed extra={<span className="chip check-sum">{t('{0}/{1} checks passed', (checksView ?? result).checks.filter((c) => c.ok === true).length, (checksView ?? result).checks.length)}</span>}>
+                <CheckTimeline result={checksView ?? result} onJoin={openJoin} rkey={rkey} />
               </Section>
             </div>
             <aside className="rv-side">
               {canSave && result.pay && model && wage
-                ? <SlipPrint rkey={rkey}><div ref={slipRef} className="slip-holder"><PaySlip spec={spec} view={result.pay.agreed} model={model} wage={wage} level={level} disputed={result.pay.disputed > 0} paidAt={paid && !paid.changed ? paid.at : undefined} dealKey={rkey + ':' + model.net} /></div></SlipPrint>
+                ? <SlipPrint rkey={rkey}><div ref={slipRef} className="slip-holder"><PaySlip spec={spec} view={result.pay.agreed} model={model} wage={wage} level={level} disputed={result.pay.disputed > 0} paidAt={paid && !paid.changed ? paid.at : undefined} received={paid && !paid.changed && paid.paid.receipt ? paid.paid.receipt : undefined} dealKey={rkey + ':' + model.net} /></div></SlipPrint>
                 : <div className="panel"><p className="muted">{t('The slip is available for a verified pair with clear photos.')}</p></div>}
             </aside>
           </div>
