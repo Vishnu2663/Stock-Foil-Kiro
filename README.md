@@ -9,6 +9,7 @@ Stock & Foil resurrects the split stick for the millions of people paid daily in
 - **Live app:** https://vishnu2663.github.io/Stock-Foil-Kiro/
 - **Demo video:** _link added after recording_
 - Built with [Kiro](https://kiro.dev) for **Kiroween 2026**, category **Resurrection**.
+- **Project description:** [docs/DEVPOST.md](docs/DEVPOST.md) · **How Kiro was used:** [docs/HOW_KIRO_WAS_USED.md](docs/HOW_KIRO_WAS_USED.md)
 
 ## How it works
 
@@ -34,6 +35,7 @@ Stock & Foil resurrects the split stick for the millions of people paid daily in
     npm run dev          # http://localhost:5173
     npm test             # property-based tests (SF_RUNS=15 by default)
     SF_RUNS=50 npm test  # more runs
+    npm run test:accuracy  # phone, cut-check and received-mark accuracy with 200 runs each
     npm run typecheck
     npm run build        # dist/
 
@@ -64,7 +66,7 @@ All in `tests/`, written with fast-check. The photo simulator (`src/render/scene
 
 ## Built with Kiro
 
-Everything Kiro used is in [`.kiro/`](.kiro/): 12 specs (`.kiro/specs/`), steering (`.kiro/steering/`), agent hooks (`.kiro/hooks/`) and custom agents (`.kiro/agents/`). The build log is [docs/KIRO_LOG.md](docs/KIRO_LOG.md) and the original brief is [docs/BUILD_BRIEF.md](docs/BUILD_BRIEF.md). Deployment: [DEPLOY.md](DEPLOY.md).
+Everything Kiro used is in [`.kiro/`](.kiro/): 14 specs (`.kiro/specs/`), steering (`.kiro/steering/`), agent hooks (`.kiro/hooks/`) and custom agents (`.kiro/agents/`). The write-up is [docs/HOW_KIRO_WAS_USED.md](docs/HOW_KIRO_WAS_USED.md), the build log is [docs/KIRO_LOG.md](docs/KIRO_LOG.md) and the original brief is [docs/BUILD_BRIEF.md](docs/BUILD_BRIEF.md). Deployment: [DEPLOY.md](DEPLOY.md).
 
 ## Licences
 
