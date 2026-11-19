@@ -7,3 +7,4 @@
 - [x] 6. Wage packet slip, print styles (PaySlip.tsx, pages.css) — R5
 - [x] 7. Party avatars everywhere (Party.tsx + pages) — R6
 - [x] 8. Tests: tests/wage.test.tsx (schedule cases, payFor property, cash property, words, view model, migration, roles, reduced motion)
+- [x] 9. Slip "RECEIVED BY" with the worker's mark (violet drawn thumbprint, never a photo); printed slip keeps an empty box — see received-thumb-mark

@@ -86,3 +86,19 @@ Phase 0 was vibe mode (steering, hooks, agents, scaffold). Phases 1 to 12 are sp
 - Built: member wage history (append-only, migrated), schedule-aware pay with any number of changes per month, a Card / Current / Custom switch with an amber banner, tap-to-edit formula numbers, one view model for amount, formula, notes, slip, Listen/Explain, receipt and crew; stylised banknote stacks dealt from a cash box; a wage-packet slip with perforations, dotted leaders, amount in words, stamps and signatures, printable on A5; worker badge / employer seal avatars on every screen; retro tokens; polish (button press, focus rings, toasts, shimmer, readable hints).
 - Kiro features: a new spec (wage-history-and-pay-slip) written with the work, parallel translator sub-agents (57 strings × 5 languages), property tests (payFor over random schedules, cash over every currency and note subset).
 - Tests: 108 passing (18 new).
+## 2026-11-20 · Combined list: phone accuracy, check the cut, menus, new look, received thumb mark
+- Input: one combined task list (parts 1–9). Parts 1–3 were done in the previous round and kept.
+- Phone nav: the red raised scan tab, no header scan button, Settings "Scan another", one Popover (desktop glass menu,
+  phone bottom sheet with drag) and one Select replacing every native select.
+- Phone accuracy: blur/motion gates, 3-in-a-row streak keyed on every punch, 4-of-5 vote, glare → unsure.
+  200 simulated phone frames: before 15 frames with a wrong-but-sure spot (all glare), after 0.
+- Check the cut: the old "edges touching" instruction made the edge trace impossible (no table beyond the edge).
+  New instruction (dark table, 1–3 cm gap), edge gates, live overlay, 1 mm sub-pixel edge, two-QR reading in one picture,
+  designed-wave check per half, a darker-quarter table reference, and no edge traced from a finger. 200 join scenes:
+  200 matched (198 allowed to capture), 0 of 62 forged foils matched (npm run test:accuracy).
+- New look: hover tilt rebuilt on CSS variables over a still wrapper, flip tiles hover by class, token sheet extended,
+  78 colours moved to tokens, dead rules removed, page/panel motion on transform/opacity only, empty states, toasts swipe.
+- Received thumb mark: RECEIVED box on new cards, detector, payday step sheet, receipt camera, ledger fields, records, privacy.
+  200 simulated box photos: thumbs 81/82 thumb, 0 false "present" on empty boxes, glare and fingers unclear.
+- Kiro features: three specs updated/added, property tests sharded across files so they run in parallel, five parallel
+  translator sub-agents (98 strings × 5 languages). Heavy accuracy tests: 50 runs by default, 200 with ACCURACY=1.

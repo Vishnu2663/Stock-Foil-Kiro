@@ -1,0 +1,6 @@
+- [x] 1. Layout + sheet: merged info box, RECEIVED box, text in 6 languages — R1
+- [x] 2. Payload flag `r` and old-card compatibility — R1.3
+- [x] 3. Detector and detect.ts hook — R2 (tests/receipt.p1–p4.test.ts: 200 simulated photos)
+- [x] 4. Checks row, already-paid warning, step sheet, receipt camera, ledger fields — R3
+- [x] 5. Slip, records, Listen, Story/Guide/About, privacy setting — R4
+- [x] 6. Tests: tests/receipt.test.ts (layout gaps, fit in every language, payloads, no interference, flows)

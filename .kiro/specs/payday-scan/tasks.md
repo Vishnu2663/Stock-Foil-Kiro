@@ -42,3 +42,7 @@
   - tests/payday-ux.test.ts (8 tests); earlier scan tests unchanged and green
   - _Requirements: R7.1–R7.11_
 - [x] 12. Wage source switch, payment flow, wage packet slip, banknotes, roles — _Requirements: R8_
+- [x] 13. Phone accuracy gates and vote (vision/quality.ts, Camera.tsx, detect.ts glare) — R9.1–R9.3
+  - tests/phone.test.ts + tests/phone.p1–p4.test.ts (200 simulated phone frames)
+- [x] 14. Check the cut (detect.ts traceEdge/cleanEdge/medianEdges/findTwo, capture.ts joinBlocker, pair.ts DESIGN, Camera, Scan) — R9.4–R9.6
+  - tests/join.test.ts + tests/join.p1–p8.test.ts (200 join scenes, forged foils)

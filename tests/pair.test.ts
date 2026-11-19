@@ -1,13 +1,12 @@
 // Phase 6 properties: comparison, pay, alignment, and simulated photo pairs.
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { makeCard, encodePayload, type CardSpec } from '../src/core/card';
+import { makeCard } from '../src/core/card';
 import { compareSets, payFor, threeViews } from '../src/core/wages';
-import { alignment, verifyPair, type AlignHole } from '../src/vision/pair';
-import { renderPair, stackTransform, type PairInput } from '../src/render/scene';
-import { scanImage } from '../src/vision/detect';
+import { alignment, type AlignHole } from '../src/vision/pair';
+import { stackTransform } from '../src/render/scene';
 import { targetsFor } from '../src/core/layout';
-import { specArb, punchArb, runs, photoRuns, sorted, base32 } from './helpers';
+import { specArb, punchArb, runs, sorted, base32 } from './helpers';
 
 describe('pair-and-pay: comparison (property 1)', () => {
   it('agreed = intersection, one-sided = symmetric difference; extra or missing holes are detected and never paid', () => {
@@ -133,106 +132,6 @@ describe('pair-and-pay: alignment (property 3)', () => {
         expect(alignment(holes.slice(0, 3)).flagged).toEqual([]);
       }),
       runs(Math.max(60, 15 * 4)),
-    );
-  });
-});
-
-// ---------------- simulated photos (property 4) ----------------
-
-function scanPair(input: PairInput) {
-  const p = renderPair(input);
-  const s = scanImage(p.stock).halves[0];
-  const f = scanImage(p.foil).halves[0];
-  return { s, f, result: verifyPair(s, f) };
-}
-
-const photoCase = fc.record({
-  id: base32(8), month: fc.integer({ min: 1, max: 12 }), seed: fc.integer({ min: 1, max: 1e6 }),
-  rot1: fc.double({ min: -20, max: 20, noNaN: true }), rot2: fc.double({ min: -20, max: 20, noNaN: true }),
-  blur: fc.double({ min: 0, max: 1, noNaN: true }),
-  stack: fc.record({ dx: fc.double({ min: -0.5, max: 0.5, noNaN: true }), dy: fc.double({ min: -0.5, max: 0.5, noNaN: true }), rotDeg: fc.double({ min: -0.3, max: 0.3, noNaN: true }) }),
-});
-
-function cardFor(c: { id: string; month: number }, paired = true, extra: Partial<CardSpec> = {}): CardSpec {
-  const spec = { ...makeCard({ worker: 'Asha Devi', employer: 'Kumar Builders', year: 2026, month: c.month, pairing: paired }, c.id), ...extra };
-  if (spec.pairing) spec.pairing = { sa: '7K3QX9ZT2M4B', sf: 'P8D2W6HN5RCA' }; // deterministic photos
-  return spec;
-}
-
-const days = (n: number, seed: number) => Array.from({ length: n }, (_, i) => `d${1 + ((seed + i * 3) % 27)}`).filter((v, i, a) => a.indexOf(v) === i);
-
-describe('pair-and-pay: simulated photos (property 4)', () => {
-  it('a paired card verifies as genuine-consistent', () => {
-    fc.assert(
-      fc.property(photoCase, (c) => {
-        const spec = cardFor(c);
-        const punched = [...days(6, c.seed), 'a1'];
-        const { result } = scanPair({ spec, stockPunched: punched, foilPunched: punched, seed: c.seed, stack: c.stack, photoStock: { rotationDeg: c.rot1, blur: c.blur }, photoFoil: { rotationDeg: c.rot2, blur: c.blur } });
-        expect(result.pairing).toBe('verified');
-        expect(result.verdict).toBe('genuine-consistent');
-        expect(result.pay!.agreed.days).toBe(days(6, c.seed).length);
-      }),
-      photoRuns(),
-    );
-  });
-
-  it('a different cut does not matter when pairing is verified', () => {
-    fc.assert(
-      fc.property(photoCase, (c) => {
-        const spec = cardFor(c);
-        const punched = days(5, c.seed);
-        const { result } = scanPair({ spec, stockPunched: punched, foilPunched: punched, seed: c.seed, stack: c.stack, forgeCutFoil: true, photoStock: { rotationDeg: c.rot1 }, photoFoil: { rotationDeg: c.rot2 } });
-        expect(result.pairing).toBe('verified');
-        expect(result.checks.find((k) => k.id === 'edge')!.ok).not.toBe(false);
-        expect(result.verdict).toBe('genuine-consistent');
-      }),
-      photoRuns(),
-    );
-  });
-
-  it('a half with the right id, code and cut but the wrong secret is rejected', () => {
-    fc.assert(
-      fc.property(photoCase, base32(12), (c, fake) => {
-        const spec = cardFor(c);
-        if (fake === spec.pairing!.sf) return;
-        const f = encodePayload(spec, 'F').split('|');
-        f[9] = fake; // SF1p|F|id|ym|rate|adv|cur|lang|code|SECRET|tag|worker|employer
-        const punched = days(5, c.seed);
-        const { result } = scanPair({ spec, stockPunched: punched, foilPunched: punched, seed: c.seed, foilPayload: f.join('|'), photoStock: { rotationDeg: c.rot1 }, photoFoil: { rotationDeg: c.rot2 } });
-        expect(result.pairing).toBe('failed');
-        expect(result.verdict).toBe('pair-mismatch');
-      }),
-      photoRuns(),
-    );
-  });
-
-  it('legacy cards rely on the cut', () => {
-    fc.assert(
-      fc.property(photoCase, fc.boolean(), (c, forged) => {
-        const spec = cardFor(c, false);
-        const punched = days(5, c.seed);
-        const { result } = scanPair({ spec, stockPunched: punched, foilPunched: punched, seed: c.seed, stack: c.stack, forgeCutFoil: forged, photoStock: { rotationDeg: c.rot1 }, photoFoil: { rotationDeg: c.rot2 } });
-        expect(result.pairing).toBe('legacy');
-        expect(result.verdict).toBe(forged ? 'pair-mismatch' : 'genuine-consistent');
-      }),
-      photoRuns(),
-    );
-  });
-
-  it('an extra hole on one half is shown and never paid; a separately punched hole is flagged for review', () => {
-    fc.assert(
-      fc.property(photoCase, (c) => {
-        const spec = cardFor(c);
-        const d = days(6, c.seed);
-        const { result } = scanPair({ spec, stockPunched: [...d, 'd28'], foilPunched: d.filter((k) => k !== 'd28'), seed: c.seed, stack: c.stack });
-        expect(result.verdict).toBe('genuine-disputed');
-        expect([...result.comparison!.stockOnly]).toContain('d28');
-        expect(result.pay!.agreed.days).toBe(d.filter((k) => k !== 'd28').length);
-        const sep = scanPair({ spec, stockPunched: d, foilPunched: d, separate: [d[0]], separateOffset: 2.2, seed: c.seed + 7, stack: c.stack });
-        expect(sep.result.verdict).toBe('review');
-        expect(sep.result.align!.flagged).toContain(d[0]);
-      }),
-      photoRuns(),
     );
   });
 });

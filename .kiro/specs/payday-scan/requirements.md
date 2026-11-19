@@ -123,3 +123,17 @@ Reference: docs/BUILD_BRIEF.md §4 Phase 7.
 ## R8 Pay by wage history (see .kiro/specs/wage-history-and-pay-slip)
 1. The payday result SHALL pay by the chosen wage source and show it; all derived amounts update together.
 2. The payment flow, the tally and the camera pill SHALL name the worker and the employer with their role avatars.
+## R9 Phone accuracy, check the cut, navigation (combined task list, parts 4–8)
+1. Phones: rear camera 1920×1080 (1280×720 fallback), continuous focus/exposure/white balance, a point of interest on
+   the card; frames read at ≤ 1600 px (≥ 1200 when the camera gives that), blurred frames (Laplacian variance on a
+   400 px copy) and frames during fast DeviceMotion are skipped with "Hold still…"; "Move closer" under 35% of the frame.
+2. Capture on phones after 3 reads in a row that agree on every punch and the card id (300 ms tick; desktop 2 / 450 ms);
+   the captured half is the 4-of-5 vote over the last 5 reads (otherwise unsure).
+3. Glare on a spot (> 250 in > 30% of its pixels, paper below 235) SHALL make that spot unsure and ask to tilt.
+4. Check the cut: both halves on a DARK table with a 1–3 cm gap; capture only with ≥ 60% edge seen on each half,
+   ≥ 3 px/mm, a dark table and a gap (touching edges are refused). Live edge dots, coverage bars, a ghost of the wave.
+   Edges traced every 1 mm with a sub-pixel gradient peak, a 2 mm dark-run rule, a local-contrast mask, MAD outlier
+   removal and the median of the last 5 good frames. Only the edge data is replaced; punch reads stay (asked if they differ).
+5. Each half against the card's designed wave (c ≥ 0.85, rms ≤ 1.0 mm) counts as a checked cut; c < 0.6 names the half
+   whose cut does not match. edgeMatch() thresholds are unchanged.
+6. After 20 s without a join capture: tips, "Scan each half's wavy edge close up", or keep the result.

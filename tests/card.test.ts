@@ -60,7 +60,7 @@ describe('card-core: SF1 compatibility (property 2)', () => {
     fc.assert(
       fc.property(specArb, (s0) => {
         const spec: CardSpec = { ...s0, carryMinor: 0 };
-        delete spec.halves; delete spec.discs; delete spec.pairing;
+        delete spec.halves; delete spec.discs; delete spec.pairing; delete spec.receiptBox;
         const p = encodePayload(spec, 'S');
         const ym = `${spec.year}${String(spec.month).padStart(2, '0')}`;
         expect(p).toBe(['SF1', 'S', spec.id, ym, spec.rateMinor, spec.advMinor, spec.currency, spec.lang, cardCode(spec), spec.worker, spec.employer].join('|'));
@@ -70,7 +70,7 @@ describe('card-core: SF1 compatibility (property 2)', () => {
   });
 
   it('old SF1 payloads still decode (fixed vector)', () => {
-    const spec = makeCard({ worker: 'Ravi', employer: 'Mehta & Sons', year: 2025, month: 3, pairing: false }, 'K7M2Q9XA');
+    const spec = makeCard({ worker: 'Ravi', employer: 'Mehta & Sons', year: 2025, month: 3, pairing: false, receiptBox: false }, 'K7M2Q9XA'); // an old card: no RECEIVED box
     const raw = `SF1|F|K7M2Q9XA|202503|50000|10000|INR|en|${cardCode(spec)}|Ravi|Mehta & Sons`;
     const d = decodePayload(raw)!;
     expect(d.codeOk).toBe(true);
