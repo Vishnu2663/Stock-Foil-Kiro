@@ -150,3 +150,31 @@ export function revealPlan(level: 'full' | 'match' | 'warn' | 'bad' | 'none', en
     stampAt: instant ? 0 : 200, amountAt: instant ? 0 : 650, formulaAt: instant ? 0 : 900, gridAt: instant ? 0 : 1100, burstAt: instant ? 0 : 600,
   };
 }
+
+/** A tiny noise burst through a band filter: a banknote flick (soft) or a dot-matrix buzz (longer, buzzy). */
+function noise(scope: Scope, on: boolean, kind: 'flick' | 'buzz', env = motionEnv()) {
+  if (!on || env.reduced || env.hidden || typeof window === 'undefined') return;
+  const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AC) return;
+  try {
+    ctx ??= new AC();
+    const a = ctx;
+    if (a.state === 'suspended') void a.resume();
+    const dur = kind === 'flick' ? 0.06 : 0.7;
+    const len = Math.floor(a.sampleRate * dur);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      const env2 = kind === 'flick' ? (1 - i / len) ** 3 : (Math.floor(i / (a.sampleRate / 90)) % 2 ? 0.25 : 1) * (1 - i / len);
+      d[i] = (Math.random() * 2 - 1) * env2;
+    }
+    const src = a.createBufferSource(); src.buffer = buf;
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = kind === 'flick' ? 3200 : 900; bp.Q.value = kind === 'flick' ? 0.8 : 3;
+    const gn = a.createGain(); gn.gain.value = kind === 'flick' ? 0.08 : 0.035;
+    src.connect(bp).connect(gn).connect(a.destination);
+    src.start();
+    scope.add(() => { try { src.stop(); gn.disconnect(); } catch { /* done */ } });
+  } catch { /* audio not allowed */ }
+}
+export const paperFlick = (scope: Scope, on: boolean) => noise(scope, on, 'flick');
+export const printerBuzz = (scope: Scope, on: boolean) => noise(scope, on, 'buzz');

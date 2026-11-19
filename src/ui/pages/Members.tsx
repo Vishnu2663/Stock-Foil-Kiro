@@ -1,4 +1,7 @@
 import { useMemo, useState } from 'react';
+import { appendWage, wagesOf } from '../../core/members';
+import type { WageEntry } from '../../core/wages';
+import { Party } from '../components/Party';
 import { useApp } from '../ctx';
 import { Field, MonthPicker, Switch } from '../components/Controls';
 import { Icon } from '../components/Icon';
@@ -12,6 +15,20 @@ import { UI_LANGS } from '../../i18n/index';
 
 const blank = { name: '', employer: '', rate: '500', adv: '100', currency: 'INR', lang: 'en', halves: false, discs: false };
 
+/** The wage history as a row of chips: ₹700 → ₹750 from 16 Nov. */
+function WageHistory({ m }: { m: Member }) {
+  const h = wagesOf(m);
+  if (h.length < 2) return null;
+  const fmt = (e: WageEntry) => new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(e.fromYear, e.fromMonth - 1, e.fromDay)));
+  return (
+    <span className="wage-hist" data-notranslate>
+      {h.map((e, i) => (
+        <span key={i} className="wh-chip">{i > 0 && <span className="wh-arrow">→</span>}{formatMoney(e.rateMinor, m.currency)}<small>{fmt(e)}</small></span>
+      ))}
+    </span>
+  );
+}
+
 export default function Members() {
   const { t, toast, startCard } = useApp();
   const now = new Date();
@@ -21,6 +38,8 @@ export default function Members() {
   const [form, setForm] = useState(blank);
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const today = new Date();
+  const [wageFrom, setWageFrom] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
   const cards = useMemo(() => loadCards(), [cardsVersion]);
   const counts = useMemo(() => cardCounts(members, cards, ym.year, ym.month), [members, cards, ym]);
   const missing = useMemo(() => membersWithoutCard(members, cards, ym.year, ym.month), [members, cards, ym]);
@@ -36,7 +55,19 @@ export default function Members() {
       name, employer, rateMinor: clampAmount(rate), advMinor: clampAmount(adv), currency: form.currency, lang: form.lang,
       halves: form.halves || undefined, discs: form.discs || undefined,
     };
-    if (editing) persist(members.map((m) => (m.id === editing ? { ...m, ...row } : m)));
+    if (editing) {
+      // a wage change is APPENDED to the history from the chosen date; history is never overwritten
+      persist(members.map((m) => {
+        if (m.id !== editing) return m;
+        const { rateMinor, advMinor, ...rest } = row;
+        let next: Member = { ...m, ...rest };
+        if (rateMinor !== m.rateMinor || advMinor !== m.advMinor) {
+          const [y, mo, d] = wageFrom.split('-').map(Number);
+          next = appendWage(next, { fromYear: y, fromMonth: mo, fromDay: d, rateMinor, advMinor });
+        }
+        return next;
+      }));
+    }
     else persist([...members, { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), createdAt: new Date().toISOString(), ...row }]);
     setForm(blank);
     setEditing(null);
@@ -86,6 +117,7 @@ export default function Members() {
             <Field label={t('Employer')}><input value={form.employer} maxLength={18} onChange={(e) => setForm({ ...form, employer: e.target.value })} /></Field>
             <Field label={t('Daily wage')}><input inputMode="decimal" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} /></Field>
             <Field label={t('Advance token value')}><input inputMode="decimal" value={form.adv} onChange={(e) => setForm({ ...form, adv: e.target.value })} /></Field>
+            {editing && <Field label={t('From which date?')} hint={t('The new wage applies from this date. Earlier days keep the old wage.')}><input type="date" value={wageFrom} onChange={(e) => setWageFrom(e.target.value)} /></Field>}
             <Field label={t('Currency')}><select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
             <Field label={t('Language')}><select value={form.lang} onChange={(e) => setForm({ ...form, lang: e.target.value })}>{UI_LANGS.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select></Field>
           </div>
@@ -115,16 +147,16 @@ export default function Members() {
                   const c = counts.get(m.id) ?? { all: 0, month: 0 };
                   return (
                     <tr key={m.id}>
-                      <td data-label={t('Name')} data-notranslate>{m.name}</td>
-                      <td data-label={t('Employer')} data-notranslate>{m.employer}</td>
-                      <td data-label={t('Wage')} className="num" data-notranslate>{formatMoney(m.rateMinor, m.currency)}</td>
+                      <td data-label={t('Name')}><Party role="worker" name={m.name} size={30} compact /></td>
+                      <td data-label={t('Employer')}><Party role="employer" name={m.employer} size={30} compact /></td>
+                      <td data-label={t('Wage')} className="num" data-notranslate>{formatMoney(m.rateMinor, m.currency)}<WageHistory m={m} /></td>
                       <td data-label={t('Advance')} className="num" data-notranslate>{formatMoney(m.advMinor, m.currency)}</td>
                       <td data-label={t('Language')}>{UI_LANGS.find((l) => l.code === m.lang)?.name ?? m.lang}</td>
                       <td data-label={t('Cards')} className="num">{c.all}</td>
                       <td data-label={t('This month')} className="num">{c.month}</td>
                       <td data-label={t('Actions')}>
                         <div className="row">
-                          <button className="btn small" onClick={() => startCard({ worker: m.name, employer: m.employer, rateMinor: m.rateMinor, advMinor: m.advMinor, currency: m.currency, lang: m.lang, year: ym.year, month: ym.month, halves: m.halves, discs: m.discs, carryMinor: carryForward(loadLedger(), m.name, m.employer, ym.year, ym.month) })}><Icon name="card" /> New card</button>
+                          <button className="btn small" onClick={() => startCard({ memberId: m.id, worker: m.name, employer: m.employer, rateMinor: m.rateMinor, advMinor: m.advMinor, currency: m.currency, lang: m.lang, year: ym.year, month: ym.month, halves: m.halves, discs: m.discs, carryMinor: carryForward(loadLedger(), m.name, m.employer, ym.year, ym.month) })}><Icon name="card" /> New card</button>
                           <button className="btn small" onClick={() => edit(m)} aria-label={t('Edit {0}', m.name)}><Icon name="edit" /></button>
                           <button className="btn small" onClick={() => remove(m)} aria-label={t('Remove {0}', m.name)}><Icon name="trash" /></button>
                         </div>

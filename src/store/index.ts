@@ -1,6 +1,6 @@
 // Local storage: settings, cards, ledger, crew, members. Every access is wrapped in try/catch.
 import type { CardSpec } from '../core/card';
-import type { Member } from '../core/members';
+import { migrateMember, type Member } from '../core/members';
 import { appendReceipt, type Receipt, type ReceiptData } from '../core/history';
 
 export type AiProvider = 'off' | 'builtin' | 'custom';
@@ -19,6 +19,8 @@ export interface Settings {
   scannerDebug: boolean;
   /** Punch-clock sound when a half is captured (quiet; never with reduced motion or a hidden tab). */
   sounds: boolean;
+  /** denominations the payer does not have, per currency (Settings → Notes I have) */
+  notesOff: Record<string, number[]>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -33,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   calibration: {},
   scannerDebug: false,
   sounds: true,
+  notesOff: {},
 };
 
 export interface KV { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
@@ -104,12 +107,16 @@ export const KEYS = {
 
 /** Field by field: a field is kept only when its type matches the default. */
 export function sanitizeSettings(raw: unknown): Settings {
-  const out: Settings = { ...DEFAULT_SETTINGS, calibration: {} };
+  const out: Settings = { ...DEFAULT_SETTINGS, calibration: {}, notesOff: {} };
   if (!raw || typeof raw !== 'object') return out;
   const r = raw as Record<string, unknown>;
   for (const k of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
     const d = DEFAULT_SETTINGS[k];
     const v = r[k];
+    if (k === 'notesOff') {
+      if (v && typeof v === 'object' && !Array.isArray(v)) for (const [cur, list] of Object.entries(v as Record<string, unknown>)) if (/^[A-Z]{3}$/.test(cur) && Array.isArray(list)) out.notesOff[cur] = list.filter((x): x is number => typeof x === 'number' && x > 0);
+      continue;
+    }
     if (k === 'calibration') {
       if (v && typeof v === 'object' && !Array.isArray(v)) {
         const c = v as Record<string, unknown>;
@@ -181,7 +188,7 @@ export function addReceipt(data: ReceiptData): Receipt[] {
 // ---------- members ----------
 export const loadMembers = (): Member[] => {
   const v = readJSON<unknown>(KEYS.members, []);
-  return Array.isArray(v) ? (v as Member[]) : [];
+  return Array.isArray(v) ? (v as Member[]).map(migrateMember) : [];
 };
 export const saveMembers = (m: Member[]) => writeJSON(KEYS.members, m);
 

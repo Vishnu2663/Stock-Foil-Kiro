@@ -33,7 +33,7 @@ export function SectionHead({ n, title }: { n: number; title: string }) {
   return <div className="section-head"><span className="num-dot" aria-hidden="true">{n}</span><h3>{title}</h3></div>;
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+export function Field({ label, hint, children }: { label: ReactNode; hint?: string; children: ReactNode }) {
   return (
     <label className="field">
       <span>{label}</span>

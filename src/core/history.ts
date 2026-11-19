@@ -1,6 +1,6 @@
 // Hash-chained receipts, history grouping (§6.7, Phase 8). Pure, no DOM.
 import { sha256Hex } from './pairing';
-import type { RateChange } from './wages';
+import type { RateChange, RateRange, WageSource } from './wages';
 
 export type Verdict =
   | 'genuine-consistent' | 'genuine-disputed' | 'review' | 'inconclusive'
@@ -21,6 +21,8 @@ export interface ReceiptData {
   disputedMinor: number;
   currency: string;
   rateChange?: RateChange;
+  /** what the pay was worked out from, when not the printed card wage */
+  wage?: { source: WageSource; ranges: RateRange[]; advMinor: number };
   halfUnits?: number;
 }
 
@@ -36,6 +38,7 @@ export function receiptString(r: Omit<Receipt, 'hash'>): string {
   ];
   if (r.rateChange) parts.push(`rc:${r.rateChange.fromDay}:${r.rateChange.rateMinor}`);
   if (r.halfUnits !== undefined) parts.push(`hu:${r.halfUnits}`);
+  if (r.wage) parts.push(`wg:${r.wage.source}:${r.wage.advMinor}:${r.wage.ranges.map((g) => `${g.fromDay}-${g.toDay}@${g.rateMinor}`).join(',')}`);
   parts.push(r.prev);
   return parts.join('|');
 }
@@ -48,6 +51,7 @@ export function appendReceipt(chain: Receipt[], data: ReceiptData): Receipt[] {
   const base: Omit<Receipt, 'hash'> = { ...data, seq, prev };
   if (data.rateChange === undefined) delete (base as Partial<Receipt>).rateChange;
   if (data.halfUnits === undefined) delete (base as Partial<Receipt>).halfUnits;
+  if (data.wage === undefined) delete (base as Partial<Receipt>).wage;
   return [...chain, { ...base, hash: hashReceipt(base) }];
 }
 

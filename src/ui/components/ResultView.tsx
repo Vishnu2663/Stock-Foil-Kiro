@@ -12,7 +12,10 @@ import { makeWave } from '../../core/wave';
 import { stampFor, type Level } from '../celebrate';
 import { confetti, createScope, motionEnv, revealPlan, type Scope } from '../anim';
 import { Odometer, Typer } from './Motion';
-import { NotePic } from './Result';
+import { NoteStacks } from './Banknote';
+import { Avatar, Party, partyText } from './Party';
+import type { PaydayModel, Token } from '../payday';
+import type { CashBreakdown } from '../../core/cash';
 import { useApp } from '../ctx';
 
 /** Short weekday names (Monday first) in the card's language. */
@@ -47,10 +50,84 @@ export interface HeroProps {
   children?: ReactNode;
   actions: ReactNode;
   onJoin?: () => void;
+  /** the live pay (from the chosen wage source); when given it drives the amount, formula and notes */
+  model?: PaydayModel;
+  onEdit?: (edit: NonNullable<Token['edit']>, minor: number) => void;
+  wageControl?: ReactNode;
+}
+
+/** Employer seal ──amount──▶ worker badge; notes travel along the arrow whenever the amount changes. */
+export function PayFlow({ spec, model, flowKey }: { spec: CardSpec; model: PaydayModel; flowKey: string }) {
+  const { t } = useApp();
+  const track = useRef<HTMLDivElement>(null);
+  const wRef = useRef<HTMLSpanElement>(null), eRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const env = motionEnv();
+    const sc = createScope();
+    if (env.reduced || !track.current) return () => sc.dispose();
+    const tr = track.current;
+    const w = tr.clientWidth, h = tr.clientHeight;
+    const vertical = h > w;
+    const n = Math.min(5, Math.max(1, model.cash.notes.reduce((a, x) => a + x.count, 0)));
+    for (let i = 0; i < n; i++) {
+      const el = document.createElement('span');
+      el.className = 'flow-note';
+      tr.appendChild(el);
+      sc.add(() => el.remove());
+      const dist = vertical ? h : w;
+      const dir = model.owes ? -1 : 1;
+      const a = sc.animate(el, vertical
+        ? [{ transform: `translateY(${dir > 0 ? 0 : dist}px)`, opacity: 0 }, { opacity: 1, offset: 0.15 }, { opacity: 1, offset: 0.85 }, { transform: `translateY(${dir > 0 ? dist : 0}px)`, opacity: 0 }]
+        : [{ transform: `translateX(${dir > 0 ? 0 : dist}px)`, opacity: 0 }, { opacity: 1, offset: 0.15 }, { opacity: 1, offset: 0.85 }, { transform: `translateX(${dir > 0 ? dist : 0}px)`, opacity: 0 }],
+        { duration: 900, delay: 700 + i * 110, easing: 'ease-in-out', fill: 'both' });
+      if (a) a.finished.then(() => el.remove(), () => el.remove()); else el.remove();
+    }
+    sc.timeout(() => {
+      sc.animate(model.owes ? eRef.current : wRef.current, [{ transform: 'none' }, { transform: 'translateY(-8px)' }, { transform: 'none' }], { duration: 380, easing: 'cubic-bezier(.3,1.6,.4,1)' });
+      sc.animate(model.owes ? wRef.current : eRef.current, [{ transform: 'none' }, { transform: 'scale(.9)' }, { transform: 'none' }], { duration: 220 });
+    }, 700 + n * 110 + 700);
+    return () => sc.dispose();
+  }, [flowKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className={'pay-flow' + (model.owes ? ' owes' : '')}>
+      <span ref={eRef} className="pf-end"><Party role="employer" name={spec.employer} size={46} caption /></span>
+      <div className="pf-track" ref={track} aria-hidden="true">
+        <span className="pf-amt" data-notranslate>{model.owes ? t('Worker owes {0}', model.amountText) : model.amountText}</span>
+      </div>
+      <span ref={wRef} className="pf-end"><Party role="worker" name={spec.worker} size={46} caption /></span>
+      <span className="sr-only">{model.listen}</span>
+    </div>
+  );
+}
+
+/** The formula as tokens: tap a rate or the advance value to change it; changed numbers flash amber. */
+function Formula({ model, onEdit, currency }: { model: PaydayModel; onEdit?: HeroProps['onEdit']; currency: string }) {
+  const { t } = useApp();
+  const mounted = useRef(false);
+  useEffect(() => { const id = setTimeout(() => { mounted.current = true; }, 50); return () => clearTimeout(id); }, []);
+  const [pop, setPop] = useState<{ edit: NonNullable<Token['edit']>; value: string } | null>(null);
+  return (
+    <span className="rv-tokens">
+      {model.tokens.map((tk) => tk.edit && onEdit
+        ? <button key={tk.key} type="button" className={'tok edit' + (mounted.current ? ' flash' : '')} onClick={(e) => { e.stopPropagation(); setPop({ edit: tk.edit!, value: tk.text.replace(/[^\d.]/g, '') }); }} title={t('Tap to change')} data-notranslate>{tk.text}</button>
+        : <span key={tk.key} className={'tok' + (mounted.current && /\d/.test(tk.text) ? ' flash' : '')} data-notranslate>{tk.text}</span>)}
+      {pop && (
+        <span className="tok-pop" role="dialog" aria-label={t('Change the amount')} onClick={(e) => e.stopPropagation()}>
+          <label>{pop.edit.kind === 'adv' ? t('Advance token value') : t('Daily wage')} <span className="muted">({currency})</span>
+            <input autoFocus inputMode="decimal" value={pop.value} onChange={(e) => setPop({ ...pop, value: e.target.value })} onKeyDown={(e) => { if (e.key === 'Escape') setPop(null); }} />
+          </label>
+          <span className="row">
+            <button type="button" className="btn small primary" onClick={() => { const v = Number(pop.value); if (Number.isFinite(v) && v >= 0) onEdit?.(pop.edit, Math.round(v * 100)); setPop(null); }}>{t('Apply')}</button>
+            <button type="button" className="btn small ghost" onClick={() => setPop(null)}>{t('Cancel')}</button>
+          </span>
+        </span>
+      )}
+    </span>
+  );
 }
 
 /** The hero: stamp slam, odometer amount, typed formula, notes fan, actions. Plays once per result key. */
-export function ResultHero({ result, rkey, level, children, actions, onJoin }: HeroProps) {
+export function ResultHero({ result, rkey, level, children, actions, onJoin, model, onEdit, wageControl }: HeroProps) {
   const { t } = useApp();
   const root = useRef<HTMLDivElement>(null);
   const stampRef = useRef<HTMLSpanElement>(null);
@@ -60,7 +137,10 @@ export function ResultHero({ result, rkey, level, children, actions, onJoin }: H
   const v = result.pay?.agreed;
   const stamp = stampFor(result, level, VERDICT_LABEL[result.verdict]);
   const showAmount = !!v && !!spec && result.verdict !== 'pair-mismatch' && result.verdict !== 'unreliable';
-  const cash = showAmount ? cashBreakdown(v!.net, spec!.currency) : null;
+  const cash: CashBreakdown | null = showAmount ? (model?.cash ?? cashBreakdown(v!.net, spec!.currency)) : null;
+  const net = model?.net ?? v?.net ?? 0;
+  const first = useRef(true);
+  useEffect(() => { const id = setTimeout(() => { first.current = false; }, 2500); return () => clearTimeout(id); }, [rkey]);
 
   useEffect(() => {
     const sc = createScope();
@@ -81,28 +161,27 @@ export function ResultHero({ result, rkey, level, children, actions, onJoin }: H
       <div className="rv-hero-top">
         <div>
           <div className="kicker" data-notranslate>{spec ? new Intl.DateTimeFormat(spec.lang || 'en', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(spec.year, spec.month - 1, 1))) : ''}</div>
-          {spec && <h2 className="rv-names" data-notranslate>{spec.worker || '—'} · {spec.employer || '—'}</h2>}
         </div>
         <span className="rv-stamp-wrap">
           {plan.splatter && !skip && <Splatter tone={stamp.tone} />}
           <span ref={stampRef} className={`rv-stamp ${stamp.tone}`} role="status">{t(stamp.text)}</span>
         </span>
       </div>
+      {showAmount && spec && model && <PayFlow spec={spec} model={model} flowKey={rkey + ':' + net} />}
+      {showAmount && spec && !model && <h2 className="rv-names" data-notranslate>{spec.worker || '—'} · {spec.employer || '—'}</h2>}
       {showAmount && (
         <>
-          <div className="rv-label">{v!.net < 0 ? t('Worker owes') : t('To pay')}</div>
+          <div className="rv-label">{net < 0 ? t('Worker owes') : t('To pay')}</div>
           <div className={'rv-amount' + (plan.sheen ? ' sheen' : '')}>
-            {skip || plan.instant ? <span className="odo">{formatMoney(Math.abs(v!.net), spec!.currency)}</span> : <Odometer text={formatMoney(Math.abs(v!.net), spec!.currency)} delay={plan.amountAt} />}
+            {plan.instant ? <span className="odo">{formatMoney(Math.abs(net), spec!.currency)}</span> : <Odometer text={formatMoney(Math.abs(net), spec!.currency)} delay={skip || !first.current ? 0 : plan.amountAt} />}
           </div>
-          <div className="rv-formula">{skip || plan.instant ? formulaText(result, t) : <Typer text={formulaText(result, t)} delay={plan.formulaAt} />}</div>
-          {cash && cash.notes.length > 0 && (
+          {wageControl}
+          <div className="rv-formula">{model ? <Formula model={model} onEdit={onEdit} currency={spec!.currency} /> : skip || plan.instant ? formulaText(result, t) : <Typer text={formulaText(result, t)} delay={plan.formulaAt} />}</div>
+          {cash && !(model?.owes) && (cash.notes.length > 0 || cash.remainderMinor > 0) && (
             <div className="rv-notes" aria-label={t('Notes to hand over')}>
-              {cash.notes.flatMap((n) => Array.from({ length: Math.min(n.count, 6) }, (_, i) => ({ n, i }))).map(({ n, i }, k, all) => (
-                <span key={`${n.value}-${i}`} className="rv-note" style={{ ['--k' as string]: k, ['--n' as string]: all.length }} data-notranslate>
-                  <NotePic value={n.value} currency={spec!.currency} />
-                </span>
-              ))}
-              <span className="rv-notes-sum" data-notranslate>{cash.notes.map((n) => `${n.value}×${n.count}`).join(' · ')}</span>
+              <NoteStacks cash={cash} currency={spec!.currency} dealKey={rkey + ':' + net} />
+              {model?.checkSum && <span className="rv-notes-sum" data-notranslate>{model.checkSum}</span>}
+              {cash.skipped && <span className="rv-notes-skip">{t('No {0} notes on hand: smaller notes used.', cash.skipped.join(', '))}</span>}
             </div>
           )}
         </>
@@ -164,14 +243,14 @@ function PaperHalf({ half, role, oneSided, overrides, onToggle, firstUnsure, fla
     );
     const key = ks.find((k) => isUnsure(k) || isManual(k)) ?? ks[0];
     rows.push(onToggle && (unsure || manual)
-      ? <button key={d} type="button" className={cls} style={{ ['--row' as string]: row }} aria-label={label} onClick={() => onToggle(key)}>{inner}</button>
-      : <span key={d} className={cls} style={{ ['--row' as string]: row }} aria-label={label} role="img">{inner}</span>);
+      ? <button key={d} type="button" data-day={d} className={cls} style={{ ['--row' as string]: row }} aria-label={label} onClick={() => onToggle(key)}>{inner}</button>
+      : <span key={d} data-day={d} className={cls} style={{ ['--row' as string]: row }} aria-label={label} role="img">{inner}</span>);
   }
   const adv = targetsFor(spec).filter((x) => x.kind === 'adv');
   return (
     <div className={`paper-half ${role === 'S' ? 'stock' : 'foil'}` + (flash ? ' flash-' + flash : '')}>
       {role === 'F' && <svg className="pedge top" viewBox="0 0 300 14" preserveAspectRatio="none" aria-hidden="true"><path d={wavePathFor(spec.id, 'F', 300)} /></svg>}
-      <div className="phead"><b>{role === 'S' ? 'STOCK' : 'FOIL'}</b> <i>{role === 'S' ? t('worker keeps') : t('employer keeps')}</i><span className="pid" data-notranslate>{spec.id}</span></div>
+      <div className="phead"><Avatar role={role === 'S' ? 'worker' : 'employer'} name={role === 'S' ? spec.worker : spec.employer} size={26} /><b>{role === 'S' ? 'STOCK' : 'FOIL'}</b> <i data-notranslate>{role === 'S' ? partyText('worker', spec.worker, t).owner : partyText('employer', spec.employer, t).owner}</i><span className="pid" data-notranslate>{spec.id}</span></div>
       <div className="pweek" aria-hidden="true">{week(spec.lang || 'en').map((w, i) => <span key={i} className={i >= 5 ? 'we' : ''} data-notranslate>{w.toUpperCase()}</span>)}</div>
       <div className="pgrid">{rows}</div>
       <div className="padv">
@@ -201,6 +280,19 @@ export interface TallyProps {
 export function TallyPair({ stock, foil, oneSided, overrides, onToggle, level, rkey }: TallyProps) {
   const box = useRef<HTMLDivElement>(null);
   const [lines, setLines] = useState<{ x1: number; y1: number; x2: number; y2: number }[]>([]);
+  const [hover, setHover] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const onOver = (e: React.MouseEvent) => {
+    const el = box.current, day = (e.target as Element).closest?.('[data-day]')?.getAttribute('data-day');
+    if (!el) return;
+    el.querySelectorAll('.pday.hl').forEach((x) => x.classList.remove('hl'));
+    if (!day) { setHover(null); return; }
+    const both = [...el.querySelectorAll(`.pday[data-day="${day}"]`)];
+    both.forEach((x) => x.classList.add('hl'));
+    if (both.length === 2) {
+      const b = el.getBoundingClientRect(), a = both[0].getBoundingClientRect(), c = both[1].getBoundingClientRect();
+      setHover({ x1: a.left + a.width / 2 - b.left, y1: a.top + a.height / 2 - b.top, x2: c.left + c.width / 2 - b.left, y2: c.top + c.height / 2 - b.top });
+    }
+  };
   const firstUnsure = useMemo(() => {
     for (const h of [stock, foil]) {
       const c = h?.cells.find((x) => x.unsure && (h.decoded.role === 'S' ? overrides.S : overrides.F)[x.key] === undefined);
@@ -239,15 +331,16 @@ export function TallyPair({ stock, foil, oneSided, overrides, onToggle, level, r
     return () => sc.dispose();
   }, [rkey]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div className="tally-pair" ref={box}>
+    <div className="tally-desk"><div className="tally-pair" ref={box} onMouseOver={onOver} onMouseLeave={() => { setHover(null); box.current?.querySelectorAll('.pday.hl').forEach((x) => x.classList.remove('hl')); }}>
       {stock && <PaperHalf half={stock} role="S" oneSided={oneSided} overrides={overrides.S} onToggle={onToggle('S')} firstUnsure={firstUnsure?.role === 'S' ? firstUnsure.key : undefined} />}
       {foil && <PaperHalf half={foil} role="F" oneSided={oneSided} overrides={overrides.F} onToggle={onToggle('F')} firstUnsure={firstUnsure?.role === 'F' ? firstUnsure.key : undefined} />}
-      {lines.length > 0 && (
+      {(lines.length > 0 || hover) && (
         <svg className="tally-lines" aria-hidden="true">
           {lines.map((l, i) => <line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} />)}
+          {hover && <line className="hov" x1={hover.x1} y1={hover.y1} x2={hover.x2} y2={hover.y2} />}
         </svg>
       )}
-    </div>
+    </div></div>
   );
 }
 
@@ -313,10 +406,10 @@ export function WarningBanner({ halves }: { halves: (HalfScan | undefined)[] }) 
 }
 
 /** A collapsible section (open by default; on phones it can be folded). */
-export function Section({ title, children, className = '' }: { title: string; children: ReactNode; className?: string }) {
+export function Section({ title, children, className = '', extra }: { title: string; children: ReactNode; className?: string; extra?: ReactNode }) {
   return (
     <details className={'panel rv-sec ' + className} open>
-      <summary><h2>{title}</h2></summary>
+      <summary><h2>{title}</h2>{extra}</summary>
       {children}
     </details>
   );

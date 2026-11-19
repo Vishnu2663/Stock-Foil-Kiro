@@ -18,7 +18,7 @@ export interface AppCtx {
   packVersion: number;
 }
 
-const Ctx = createContext<AppCtx | null>(null);
+export const Ctx = createContext<AppCtx | null>(null);
 
 export function useApp(): AppCtx {
   const c = useContext(Ctx);

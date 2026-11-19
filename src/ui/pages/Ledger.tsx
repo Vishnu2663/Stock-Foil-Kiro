@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { Party } from '../components/Party';
 import { useApp } from '../ctx';
 import { Icon } from '../components/Icon';
 import { loadLedger, saveLedger, loadCards, deleteCard, download, ledgerToCSV, ledgerFromCSV, clearAll } from '../../store/index';
@@ -98,10 +99,10 @@ export default function Ledger() {
                     <td data-label="#">{r.seq + 1}</td>
                     <td data-label={t('Date')} className="date">{new Date(r.at).toLocaleString()}</td>
                     <td data-label={t('Card')} data-notranslate>{r.cardId}</td>
-                    <td data-label={t('Worker')} data-notranslate>{r.worker}</td>
+                    <td data-label={t('Worker')}><Party role="worker" name={r.worker} size={26} compact /><div style={{ marginTop: 3 }}><Party role="employer" name={r.employer} size={20} compact /></div></td>
                     <td data-label={t('Month')} className="date">{r.month}</td>
                     <td data-label={t('Verdict')}><span className={'chip ' + verdictTone(r.verdict)}>{t(VERDICT_LABEL[r.verdict])}</span></td>
-                    <td data-label={t('Net')} className="num" data-notranslate>{formatMoney(r.netMinor, r.currency)}</td>
+                    <td data-label={t('Net')} className="num" data-notranslate>{formatMoney(r.netMinor, r.currency)}{r.wage && <div className="chip warn small">{t('wage adjusted')}: {r.wage.ranges.map((g) => `${g.fromDay}–${g.toDay} @ ${formatMoney(g.rateMinor, r.currency)}`).join(', ')}</div>}</td>
                     <td data-label={t('Hash')} data-notranslate><code>{r.hash.slice(0, 10)}</code></td>
                   </tr>
                 ))}

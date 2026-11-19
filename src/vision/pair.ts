@@ -2,7 +2,7 @@
 import { cardCode, type CardSpec } from '../core/card';
 import { verifyPairing, type PairingStatus } from '../core/pairing';
 import { targetsFor } from '../core/layout';
-import { compareSets, threeViews, type Comparison, type PayTerms, type RateChange, type ThreeViews } from '../core/wages';
+import { compareSets, threeViews, type Comparison, type PayTerms, type RateChange, type ThreeViews, type WageSchedule } from '../core/wages';
 import { punchSets, EDGE_XS, type HalfScan } from './detect';
 import { makeWave } from '../core/wave';
 import type { Verdict } from '../core/history';
@@ -160,6 +160,8 @@ export interface PairOptions {
   alignTolMm?: number;
   overrides?: { S?: Record<string, boolean>; F?: Record<string, boolean> };
   rateChange?: RateChange;
+  /** the wage schedule to pay by (from the card, the member's history or custom); default: the printed card */
+  wage?: WageSchedule;
 }
 
 export interface PairResult {
@@ -246,7 +248,7 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
     const manual = new Set([...s.manual, ...f.manual]);
     comparison = compareSets(stock!.decoded.spec, s.punched, f.punched, unsure, manual);
     const terms: PayTerms = {
-      rateMinor: stock!.decoded.spec.rateMinor, advMinor: stock!.decoded.spec.advMinor,
+      rateMinor: stock!.decoded.spec.rateMinor, advMinor: opts.wage?.advMinor ?? stock!.decoded.spec.advMinor, schedule: opts.wage?.ranges,
       carryMinor: stock!.decoded.spec.carryMinor, halves: stock!.decoded.spec.halves, rateChange: opts.rateChange,
     };
     pay = threeViews(comparison, terms);
@@ -268,6 +270,7 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
   });
   const minFiducials = Math.min(stock?.pose.fiducialsFound ?? 0, foil?.pose.fiducialsFound ?? 0);
   const poseOk = both && minFiducials >= 3;
+  if (opts.wage?.adjusted) checks.push({ id: 'wage', label: 'Wage adjusted', ok: null, detail: opts.wage.source === 'current' ? 'Paid by the member\'s current wage, not the printed one' : 'Paid by a custom wage, not the printed one' });
   checks.push({ id: 'photo', label: 'Photos sharp and complete enough', ok: both ? poseOk : null, detail: both ? `${minFiducials} of 4 corner squares` : '' });
 
   let verdict: Verdict;

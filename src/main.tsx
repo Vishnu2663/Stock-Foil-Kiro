@@ -4,6 +4,7 @@ import { App } from './ui/App';
 import { initFx } from './ui/fx';
 import { startTranslator } from './i18n/dom';
 import './ui/styles.css';
+import './ui/tokens.css';
 import './ui/look.css';
 import './ui/pages.css';
 

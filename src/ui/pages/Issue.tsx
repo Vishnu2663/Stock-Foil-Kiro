@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Avatar } from '../components/Party';
 import { useApp } from '../ctx';
 import { Field, MonthPicker, OptionCard, SectionHead } from '../components/Controls';
 import {
@@ -19,7 +20,7 @@ interface Form {
   pairing: boolean; halves: boolean; discs: boolean; carryOn: boolean; carry: string;
 }
 
-function initialForm(): { form: Form; editId?: string } {
+function initialForm(): { form: Form; editId?: string; memberId?: string } {
   const now = new Date();
   const pre = readJSON<(Partial<NewCardInput> & { editId?: string }) | null>(KEYS.prefill, null);
   removeKey(KEYS.prefill);
@@ -41,12 +42,13 @@ function initialForm(): { form: Form; editId?: string } {
     f.discs = !!pre.discs;
     if (pre.carryMinor) { f.carryOn = true; f.carry = major(pre.carryMinor); }
   }
-  return { form: f, editId: pre?.editId };
+  return { form: f, editId: pre?.editId, memberId: pre?.memberId };
 }
 
 export default function Issue() {
   const { t, toast } = useApp();
-  const [{ form: f0, editId: e0 }] = useState(initialForm);
+  const [{ form: f0, editId: e0, memberId: m0 }] = useState(initialForm);
+  const [memberId, setMemberId] = useState<string | undefined>(m0);
   const [form, setForm] = useState<Form>(f0);
   const [editId, setEditId] = useState<string | undefined>(e0);
   const [id, setId] = useState(() => newCardId());
@@ -55,7 +57,8 @@ export default function Issue() {
 
   useEffect(() => {
     const on = () => {
-      const { form: f, editId: e } = initialForm();
+      const { form: f, editId: e, memberId: mid } = initialForm();
+      setMemberId(mid);
       setForm(f); setEditId(e); setId(newCardId()); setPairing(newPairing()); setSaved(null);
     };
     window.addEventListener('sf-prefill', on);
@@ -75,11 +78,11 @@ export default function Issue() {
       worker: form.worker, employer: form.employer, year: form.year, month: form.month,
       rateMinor: clampAmount(parseMajor(form.rate)), advMinor: clampAmount(parseMajor(form.adv)), currency: form.currency, lang: form.lang,
       carryMinor: form.carry.trim() ? clampCarry(parseMajor(form.carry)) : 0, pairing: form.pairing, halves: form.halves, discs: form.discs,
-      revisedFrom: editId,
+      revisedFrom: editId, memberId,
     }, id);
     if (s.pairing) s.pairing = pairing;
     return s;
-  }, [form, id, pairing, editId]);
+  }, [form, id, pairing, editId, memberId]);
 
   const svg = useMemo(() => sheetSvg(spec), [spec]);
   const suggested = useMemo(() => carryForward(loadLedger(), form.worker, form.employer, form.year, form.month), [form.worker, form.employer, form.year, form.month]);
@@ -103,8 +106,10 @@ export default function Issue() {
       <div className="grid cols-2 issue-grid" style={{ alignItems: 'start' }}>
         <form className="panel stack issue-form" onSubmit={(e) => { e.preventDefault(); if (save()) printHTML(svg, 'sheet'); }}>
           <SectionHead n={1} title={t('Who is this card for?')} />
-          <Field label={t('Worker name')}><input value={form.worker} onChange={(e) => set('worker', e.target.value)} maxLength={18} autoComplete="off" placeholder="e.g. Ramesh" /></Field>
-          <Field label={t('Employer / contractor')}><input value={form.employer} onChange={(e) => set('employer', e.target.value)} maxLength={18} autoComplete="off" placeholder="e.g. Sharma Builders" /></Field>
+          <div className="grid cols-2 role-fields">
+          <Field label={<span className="role-lbl worker"><Avatar role="worker" name={form.worker} size={22} /> {t('Worker (gets paid, keeps STOCK)')}</span>}><input value={form.worker} onChange={(e) => set('worker', e.target.value)} maxLength={18} autoComplete="off" placeholder="e.g. Ramesh" /></Field>
+          <Field label={<span className="role-lbl employer"><Avatar role="employer" name={form.employer} size={22} /> {t('Employer (pays, keeps FOIL)')}</span>}><input value={form.employer} onChange={(e) => set('employer', e.target.value)} maxLength={18} autoComplete="off" placeholder="e.g. Sharma Builders" /></Field>
+          </div>
           <SectionHead n={2} title={t('Month & pay')} />
           <div className="grid cols-2">
             <MonthPicker year={form.year} month={form.month} onChange={(y, m) => { setForm((x) => ({ ...x, year: y, month: m })); setSaved(null); }} />

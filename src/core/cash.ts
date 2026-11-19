@@ -22,14 +22,20 @@ export const MINOR_PER_MAJOR = 100;
 export const notesFor = (currency: string): number[] => NOTES[currency] ?? FALLBACK_NOTES;
 
 export interface NoteCount { value: number; count: number } // value in major units
-export interface CashBreakdown { amountMinor: number; notes: NoteCount[]; remainderMinor: number }
+export interface CashBreakdown { amountMinor: number; notes: NoteCount[]; remainderMinor: number; skipped?: number[] }
 
-export function cashBreakdown(amountMinor: number, currency: string): CashBreakdown {
+/**
+ * Notes for an amount, largest first. `without` lists denominations the payer does not have (Settings →
+ * Notes I have); smaller notes are used instead and `skipped` says which were left out.
+ */
+export function cashBreakdown(amountMinor: number, currency: string, without: number[] = []): CashBreakdown {
   const amount = Math.trunc(amountMinor);
   const notes: NoteCount[] = [];
   if (amount <= 0) return { amountMinor: amount, notes, remainderMinor: amount };
   let left = amount;
+  const off = new Set(without);
   for (const v of notesFor(currency)) {
+    if (off.has(v)) continue;
     const vm = v * MINOR_PER_MAJOR;
     const c = Math.floor(left / vm);
     if (c > 0) {
@@ -37,7 +43,8 @@ export function cashBreakdown(amountMinor: number, currency: string): CashBreakd
       left -= c * vm;
     }
   }
-  return { amountMinor: amount, notes, remainderMinor: left };
+  const skipped = notesFor(currency).filter((v) => off.has(v) && v * MINOR_PER_MAJOR <= amount);
+  return { amountMinor: amount, notes, remainderMinor: left, ...(skipped.length ? { skipped } : {}) };
 }
 
 export const breakdownTotal = (b: CashBreakdown): number =>

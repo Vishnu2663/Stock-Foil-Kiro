@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Avatar } from './Party';
 import { scanImages } from '../scanAsync';
 import { videoFrame } from '../imageIO';
 import type { HalfScan } from '../../vision/detect';
@@ -66,6 +67,7 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
   const [lock, setLock] = useState(0); // 0, 0.5, 1
   const [shots, setShots] = useState<Partial<Record<Role, Shot>>>({});
   const [pill, setPill] = useState('');
+  const [pillWho, setPillWho] = useState<{ role: 'worker' | 'employer'; name: string } | null>(null);
   const [joining, setJoining] = useState<{ ok: boolean; id: string } | null>(null);
   const autoRef = useRef(true);
   autoRef.current = auto;
@@ -175,7 +177,12 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
     onHalfRef.current(h);
     const other: Role = role === 'S' ? 'F' : 'S';
     if (got.current[other]) { setPill(''); sc.timeout(finish, 500); }
-    else setPill(role === 'S' ? t('✓ Worker half captured: now the employer half (foil)') : t('✓ Employer half captured: now the worker half (stock)'));
+    else {
+      const sp = h.decoded.spec;
+      const w = sp.worker || t('the worker'), e = sp.employer || t('the employer');
+      setPill(role === 'S' ? t("✓ {0}'s half (worker, STOCK) captured: now {1}'s half (employer, FOIL)", w, e) : t("✓ {0}'s half (employer, FOIL) captured: now {1}'s half (worker, STOCK)", e, w));
+      setPillWho({ role: role === 'S' ? 'employer' : 'worker', name: role === 'S' ? e : w });
+    }
     sc.timeout(() => { if (!haveRef.current[role]) got.current = { ...got.current, [role]: false }; }, CAMERA.retry);
     say(got.current[other] ? 'done' : other === 'F' ? 'foil' : 'stock', true);
   }, [say, finish, flyToSlot]);
@@ -528,7 +535,7 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves' }: Props
       {pill && (
         <div key={pill} className="cam-pill" role="status">
           <span>{pill}</span>
-          <span className="cam-pill-flip" aria-hidden="true"><Icon name="card" /></span>
+          {pillWho ? <span className="cam-pill-flip"><Avatar role={pillWho.role} name={pillWho.name} size={26} /></span> : <span className="cam-pill-flip" aria-hidden="true"><Icon name="card" /></span>}
         </div>
       )}
       {mode === 'halves' && (

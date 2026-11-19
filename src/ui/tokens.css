@@ -1,0 +1,15 @@
+/* Retro theme tokens: one place for paper, ink, stamps, rules, shadows, radii and motion. */
+:root {
+  --tc-paper: #f4ead2; --tc-paper-2: #ead9b2; --tc-paper-hi: #fffaf0; --tc-paper-weekend: #f8f1e2;
+  --tc-ink: #2e2014; --tc-ink-2: #4a3826; --tc-ink-soft: #77593b; --tc-rule: #9a7c58; --tc-rule-2: #b49a74;
+  --tc-stamp: #a8322a; --tc-ok: #1f7a48; --tc-ok-2: #2f9a64; --tc-warn: #b06d00; --tc-warn-2: #e08a00; --tc-gold: #d9a441;
+  --on-dark: #f1e7d0; --on-dark-2: #d8cbb2; --on-dark-3: #c2b49c; /* ≥ 4.5:1 on the dark panels */
+  --r-sm: 6px; --r-md: 10px; --r-lg: 16px;
+  --sh-1: 0 1px 0 rgba(0,0,0,.25), 0 6px 14px -8px rgba(0,0,0,.6);
+  --sh-2: 0 2px 0 #b9996a, 0 30px 60px -30px #000;
+  --sh-paper: 0 1px 0 #c8ad7f, 0 18px 30px -18px #000;
+  --t-fast: 140ms; --t-mid: 280ms; --t-slow: 600ms;
+  --ease-out: cubic-bezier(.2,.8,.2,1); --ease-spring: cubic-bezier(.3,1.6,.4,1);
+  --mono: 'Courier Prime', 'Courier New', Courier, 'Noto Sans Mono', ui-monospace, monospace;
+}
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }

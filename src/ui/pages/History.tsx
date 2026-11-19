@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Party } from '../components/Party';
 import { useApp } from '../ctx';
 import { MonthPicker, Switch } from '../components/Controls';
 import { loadLedger, loadOwed, download, toCSV } from '../../store/index';
@@ -65,8 +66,8 @@ export default function History() {
               <tbody>
                 {m.rows.map((r) => (
                   <tr key={r.cardId}>
-                    <td data-label={t('Worker')} data-notranslate>{r.worker}</td>
-                    <td data-label={t('Employer')} data-notranslate>{r.employer}</td>
+                    <td data-label={t('Worker')}><Party role="worker" name={r.worker} size={28} compact /></td>
+                    <td data-label={t('Employer')}><Party role="employer" name={r.employer} size={28} compact /></td>
                     <td data-label={t('Card')} data-notranslate className="nowrap">{r.cardId}</td>
                     <td data-label={t('Scanned')} className="date">{new Date(r.scan.at).toLocaleDateString()}</td>
                     <td data-label={t('Verdict')}><span className={'chip ' + verdictTone(r.scan.verdict)}>{t(VERDICT_LABEL[r.scan.verdict])}</span></td>

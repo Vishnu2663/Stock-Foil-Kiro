@@ -19,6 +19,8 @@ export interface PayFacts {
   stockOnlyDays: number[];
   foilOnlyDays: number[];
   rateChange?: { fromDay: number; rateMinor: number };
+  /** pay split by wage range (when the wage changed in the month) */
+  ranges?: { fromDay: number; toDay: number; rateMinor: number; days: number }[];
 }
 
 /** Only numbers and fixed codes. No names, no ids, no photos. */
@@ -30,6 +32,7 @@ export function anonymise(f: PayFacts): PayFacts {
     stockOnlyDays: f.stockOnlyDays.map(Number), foilOnlyDays: f.foilOnlyDays.map(Number),
   };
   if (f.rateChange) out.rateChange = { fromDay: +f.rateChange.fromDay, rateMinor: +f.rateChange.rateMinor };
+  if (f.ranges) out.ranges = f.ranges.map((r) => ({ fromDay: +r.fromDay, toDay: +r.toDay, rateMinor: +r.rateMinor, days: +r.days }));
   return out;
 }
 
@@ -41,6 +44,7 @@ export function sumLine(f: PayFacts): string {
   const gross = f.netMinor + f.advCount * f.advMinor - f.carryMinor;
   let s = `${days} × ${m(f.rateMinor)}`;
   if (f.rateChange) s = `${days} (${m(f.rateMinor)} → ${m(f.rateChange.rateMinor)})`;
+  if (f.ranges && f.ranges.length > 1) s = f.ranges.map((r) => `${r.days % 1 ? r.days.toFixed(1) : r.days} × ${m(r.rateMinor)} (${r.fromDay}–${r.toDay})`).join(' + ');
   s += ` = ${m(gross)}`;
   if (f.advCount) s += ` − ${f.advCount} × ${m(f.advMinor)}`;
   if (f.carryMinor) s += ` ${f.carryMinor < 0 ? '−' : '+'} ${m(Math.abs(f.carryMinor))}`;

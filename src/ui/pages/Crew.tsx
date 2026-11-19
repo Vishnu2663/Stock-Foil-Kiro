@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
+import { Party } from '../components/Party';
 import { useApp } from '../ctx';
 import { Icon } from '../components/Icon';
-import { NotePic } from '../components/Result';
+import { Banknote } from '../components/Banknote';
 import { loadCrew, saveCrew, toCSV, download, type CrewRow } from '../../store/index';
 import { cashBreakdown, combineCash } from '../../core/cash';
 import { formatMoney } from '../../core/card';
@@ -51,7 +52,7 @@ export default function Crew() {
                         const b = cashBreakdown(r.netMinor, cur);
                         return (
                           <tr key={r.id}>
-                            <td data-label={t('Name')}><b data-notranslate>{r.worker}</b><div className="small muted"><span data-notranslate>{r.employer}</span> · <span className="date">{r.month}</span></div></td>
+                            <td data-label={t('Name')}><Party role="worker" name={r.worker} size={30} compact /><div className="small muted" style={{ marginTop: 4 }}><Party role="employer" name={r.employer} size={22} compact /> · <span className="date">{r.month}</span></div></td>
                             <td data-label={t('Agreed days')} className="num">{r.agreedDays}</td>
                             <td data-label={t('Net')} className="num" data-notranslate>{formatMoney(r.netMinor, cur)}</td>
                             <td data-label={t('Notes')} data-notranslate>{b.notes.map((n) => `${n.value}×${n.count}`).join('  ')}{b.remainderMinor > 0 ? ` + ${formatMoney(b.remainderMinor, cur)}` : ''}{r.netMinor < 0 ? '—' : ''}</td>
@@ -69,7 +70,7 @@ export default function Crew() {
                   <span className="total-big" data-notranslate style={{ fontSize: 34 }}>{formatMoney(list.reduce((s, r) => s + Math.max(0, r.netMinor), 0), cur)}</span>
                 </div>
                 <div className="notes" style={{ marginTop: 10 }} aria-label={t('Note mix')}>
-                  {total.notes.map((n) => <span key={n.value} className="note-pic"><NotePic value={n.value} currency={cur} /><span data-notranslate>× {n.count}</span></span>)}
+                  {total.notes.map((n) => <span key={n.value} className="note-pic"><Banknote value={n.value} currency={cur} /><span data-notranslate>× {n.count}</span></span>)}
                   {total.remainderMinor > 0 && <span className="note-pic" data-notranslate>+ {formatMoney(total.remainderMinor, cur)}</span>}
                 </div>
               </div>

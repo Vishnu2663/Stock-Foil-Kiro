@@ -41,3 +41,4 @@
     Controls.tsx (CountUp whole units), capture.ts, pair.ts (sharedPunched), Settings (Sounds), pages.css
   - tests/payday-ux.test.ts (8 tests); earlier scan tests unchanged and green
   - _Requirements: R7.1–R7.11_
+- [x] 12. Wage source switch, payment flow, wage packet slip, banknotes, roles — _Requirements: R8_

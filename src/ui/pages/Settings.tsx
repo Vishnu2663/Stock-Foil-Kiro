@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { NOTES, notesFor } from '../../core/cash';
 import { useApp } from '../ctx';
 import { Field, OptionCard, Switch } from '../components/Controls';
 import { UI_LANGS, langInfo } from '../../i18n/index';
@@ -7,6 +8,32 @@ import { clearAll, type AiProvider } from '../../store/index';
 import { speak, speechSupported } from '../../ai/speech';
 import { forgetPack } from '../../i18n/uiPack';
 import source from '../../i18n/ui/source.json';
+
+/** Denominations the payer has: untick a note to pay with smaller ones instead. */
+function NotesIHave() {
+  const { t, settings, setSettings } = useApp();
+  const [cur, setCur] = useState('INR');
+  const off = new Set(settings.notesOff[cur] ?? []);
+  const flip = (v: number) => {
+    const next = new Set(off);
+    if (next.has(v)) next.delete(v); else next.add(v);
+    setSettings({ notesOff: { ...settings.notesOff, [cur]: [...next].sort((a, b) => b - a) } });
+  };
+  return (
+    <div className="notes-have">
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <b>{t('Notes I have')}</b>
+        <select className="input" style={{ width: 'auto' }} value={cur} onChange={(e) => setCur(e.target.value)} aria-label={t('Currency')}>{Object.keys(NOTES).map((c) => <option key={c}>{c}</option>)}</select>
+      </div>
+      <p className="small ui">{t('Untick notes you do not have. The pay is then made up from the notes you have, and the result says so.')}</p>
+      <div className="row nh-list">
+        {notesFor(cur).map((v) => (
+          <label key={v} className={'nh' + (off.has(v) ? ' off' : '')}><input type="checkbox" checked={!off.has(v)} onChange={() => flip(v)} /> <span data-notranslate>{v}</span></label>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function Settings() {
   const { t, toast, settings, setSettings, lang } = useApp();
@@ -98,6 +125,7 @@ export default function Settings() {
             <a className="btn" href="#/calibrate">{t('Calibrate')}</a>
             <button className="btn" onClick={() => { setSettings({ calibration: {} }); toast(t('Back to the default settings.'), 'good'); }}>{t('Reset calibration')}</button>
           </div>
+          <NotesIHave />
           <Switch checked={settings.sounds} onChange={(v) => setSettings({ sounds: v })} label={t('Sounds')} hint={t('A quiet punch-clock sound when a half is captured.')} />
           <Switch checked={settings.scannerDebug} onChange={(v) => setSettings({ scannerDebug: v })} label={t('Scanner debug')} hint={t('Shows corner squares found, px per mm, paper and background brightness and cell counts on the camera picture. No names or card data.')} />
         </div>

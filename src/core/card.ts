@@ -20,6 +20,8 @@ export interface CardSpec {
   halves?: boolean;
   discs?: boolean;
   revisedFrom?: string;
+  /** the member this card was issued for (local record only; never in the QR or the card code) */
+  memberId?: string;
 }
 
 export const DEFAULT_RATE = 50000;
@@ -85,6 +87,7 @@ export interface NewCardInput {
   halves?: boolean;
   discs?: boolean;
   revisedFrom?: string;
+  memberId?: string;
 }
 
 export function makeCard(input: NewCardInput, id: string = newCardId()): CardSpec {
@@ -105,6 +108,7 @@ export function makeCard(input: NewCardInput, id: string = newCardId()): CardSpe
   if (input.halves) spec.halves = true;
   if (input.discs) spec.discs = true;
   if (input.revisedFrom) spec.revisedFrom = input.revisedFrom;
+  if (input.memberId) spec.memberId = input.memberId;
   return spec;
 }
 

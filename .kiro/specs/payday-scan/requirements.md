@@ -120,3 +120,6 @@ Reference: docs/BUILD_BRIEF.md §4 Phase 7.
    columns from 1000 px (slip sticky), one column with foldable sections below. All photo warnings in one banner.
 10. The punched-together check SHALL report how many holes are on both halves and say why positions could not be checked.
 11. Closing the camera SHALL cancel every timer, animation frame, animation and sound it started.
+## R8 Pay by wage history (see .kiro/specs/wage-history-and-pay-slip)
+1. The payday result SHALL pay by the chosen wage source and show it; all derived amounts update together.
+2. The payment flow, the tally and the camera pill SHALL name the worker and the employer with their role avatars.
