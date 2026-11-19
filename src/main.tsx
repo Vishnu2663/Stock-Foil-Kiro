@@ -7,6 +7,7 @@ import './ui/styles.css';
 import './ui/tokens.css';
 import './ui/look.css';
 import './ui/pages.css';
+import './ui/ui.css';
 
 initFx();
 startTranslator(document.body);

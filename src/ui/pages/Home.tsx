@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
 import type { IconName } from '../routes';
 import { HeroCard } from '../components/HeroCard';
@@ -23,8 +23,20 @@ const TILES: { icon: IconName; title: string; text: string; href: string }[] = [
 function Tile({ tile }: { tile: (typeof TILES)[number] }) {
   const { t } = useApp();
   const [flip, setFlip] = useState(false);
+  // Hover is tracked on the still button's own box, so the turning card under the pointer cannot flicker it.
+  const [hover, setHover] = useState(false);
+  const box = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!hover) return;
+    const move = (e: PointerEvent) => {
+      const r = box.current?.getBoundingClientRect();
+      if (!r || e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) setHover(false);
+    };
+    document.addEventListener('pointermove', move, { passive: true });
+    return () => document.removeEventListener('pointermove', move);
+  }, [hover]);
   return (
-    <button type="button" className={'flip-tile' + (flip ? ' flipped' : '')} onClick={() => setFlip(!flip)} aria-pressed={flip} aria-label={tile.title}>
+    <button ref={box} type="button" className={'flip-tile' + (flip ? ' flipped' : '') + (hover ? ' hover' : '')} onPointerEnter={(e) => { if (e.pointerType === 'mouse') setHover(true); }} onClick={() => setFlip(!flip)} aria-pressed={flip} aria-label={tile.title}>
       <span className="flip-inner">
         <span className="flip-face front panel">
           <span className="tile-icon" aria-hidden="true"><Icon name={tile.icon} /></span>

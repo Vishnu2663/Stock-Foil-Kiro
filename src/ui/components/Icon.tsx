@@ -1,6 +1,6 @@
 import type { IconName } from '../routes';
 
-const P: Record<IconName, string> = {
+export const ICON_PATHS: Record<IconName, string> = {
   lock: 'M5 11h14v10H5z M8 11V7a4 4 0 0 1 8 0v4 M12 15v2',
   receipt: 'M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z M9 8h6 M9 12h6 M9 16h3',
   sparkle: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z M19 16l.7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7z',
@@ -42,7 +42,13 @@ const P: Record<IconName, string> = {
 export function Icon({ name, className }: { name: IconName; className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-      <path d={P[name]} />
+      <path d={ICON_PATHS[name]} />
     </svg>
   );
+}
+
+/** A section icon as a CSS url(): the page's own icon drawn in amber, used by the punched-tile section heads. */
+export function iconUrl(name: IconName, color = '#f0a85a'): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON_PATHS[name]}"/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }

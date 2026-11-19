@@ -34,7 +34,8 @@ export function PaydayCard({ result, children, compact, rateChange }: { result: 
   const spec = result.spec;
   const pay = result.pay?.agreed;
   return (
-    <div ref={ref} className={`panel payday tone-${tone}`} data-tilt={genuine ? '3' : undefined}>
+    <div className="payday-host" data-tilt={genuine ? '3' : undefined}>
+    <div ref={ref} className={`panel payday tilt-in tone-${tone}`}>
       <div className="spread">
         <div>
           <div className="kicker" data-notranslate>{spec ? `${MONTH_NAMES[spec.month - 1]} ${spec.year}` : ''}</div>
@@ -52,6 +53,7 @@ export function PaydayCard({ result, children, compact, rateChange }: { result: 
         </div>
       )}
       {children}
+    </div>
     </div>
   );
 }

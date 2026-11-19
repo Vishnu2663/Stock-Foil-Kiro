@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useState, type ComponentType } from 'react';
+import { flushSync } from 'react-dom';
 import { AppProvider, useApp } from './ctx';
 import { Header } from './components/Header';
+import { iconUrl } from './components/Icon';
 import { TabBar } from './components/TabBar';
 import { ListenFab } from './components/Listen';
 import { parseHash, routeDef, type RouteId } from './routes';
@@ -30,8 +32,11 @@ function useRoute(): RouteId {
   useEffect(() => {
     const on = () => {
       const r = parseHash(location.hash);
-      setRoute(r);
-      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      const go = () => { flushSync(() => setRoute(r)); window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); };
+      // the route change cross-fades with the View Transitions API where it exists (not with reduced motion)
+      const d = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+      if (d.startViewTransition && !document.body.classList.contains('reduced')) d.startViewTransition(go);
+      else go();
     };
     window.addEventListener('hashchange', on);
     if (!location.hash) history.replaceState(null, '', '#/home');
@@ -59,7 +64,7 @@ function Shell() {
       <Header route={route} />
       <main id="main" tabIndex={-1}>
         <Suspense fallback={<p className="muted ui">Loading…</p>}>
-          <div className="page" key={route}>
+          <div className="page" key={route} data-route={route} style={{ ['--sec-ico' as string]: iconUrl(routeDef(route).icon) }}>
             <Page />
           </div>
         </Suspense>

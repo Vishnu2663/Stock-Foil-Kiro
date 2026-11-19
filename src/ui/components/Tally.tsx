@@ -54,8 +54,8 @@ export function TallyCard({ qr }: { qr: string }) {
   let fwd = '';
   for (let x = 0; x <= 200; x += 4) fwd += `L${x} ${(70 + wave.at(x * 0.93) * 0.9).toFixed(2)} `;
   return (
-    <div className="tally-stage">
-      <div className={'tally' + (parted ? ' parted' : '')} data-tilt="10" role="img" aria-label="A tally card split along a wavy cut into the stock and the foil">
+    <div className="tally-stage" data-tilt="10">
+      <div className={'tally tilt-in' + (parted ? ' parted' : '')} role="img" aria-label="A tally card split along a wavy cut into the stock and the foil">
         <HalfArt top wavePts={'V' + (70 + wave.at(186) * 0.9).toFixed(2) + ' ' + rev} qr={qr} />
         <HalfArt top={false} wavePts={fwd} />
       </div>

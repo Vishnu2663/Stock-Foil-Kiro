@@ -26,6 +26,34 @@ export function useApp(): AppCtx {
   return c;
 }
 
+/** A toast that follows a horizontal swipe and leaves past 80 px (or a quick flick). */
+function Toast({ tone, msg, onGone }: { tone: string; msg: string; onGone: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const d = useRef<{ x0: number; t0: number; dx: number } | null>(null);
+  const set = (dx: number, anim: boolean) => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.transition = anim ? 'transform .2s ease, opacity .2s ease' : 'none';
+    el.style.transform = dx ? `translateX(${dx}px)` : '';
+    el.style.opacity = String(Math.max(0, 1 - Math.abs(dx) / 220));
+  };
+  return (
+    <div
+      ref={ref}
+      className={'toast ' + tone}
+      onPointerDown={(e) => { d.current = { x0: e.clientX, t0: performance.now(), dx: 0 }; e.currentTarget.setPointerCapture?.(e.pointerId); }}
+      onPointerMove={(e) => { if (!d.current) return; d.current.dx = e.clientX - d.current.x0; set(d.current.dx, false); }}
+      onPointerUp={() => {
+        const g = d.current; d.current = null;
+        if (!g) return;
+        const v = Math.abs(g.dx) / Math.max(1, performance.now() - g.t0);
+        if (Math.abs(g.dx) > 80 || v > 0.7) { set(Math.sign(g.dx || 1) * 320, true); setTimeout(onGone, 200); } else set(0, true);
+      }}
+      onPointerCancel={() => { d.current = null; set(0, true); }}
+    >{msg}</div>
+  );
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [settings, setS] = useState<Settings>(() => loadSettings());
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -79,7 +107,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider value={value}>
       {children}
       <div className="toast-wrap" aria-live="polite" role="status">
-        {toasts.map((x) => <div key={x.id} className={'toast ' + x.tone}>{x.msg}</div>)}
+        {toasts.map((x) => <Toast key={x.id} tone={x.tone} msg={x.msg} onGone={() => setToasts((l) => l.filter((y) => y.id !== x.id))} />)}
       </div>
     </Ctx.Provider>
   );

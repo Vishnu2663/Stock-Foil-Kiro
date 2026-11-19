@@ -96,8 +96,8 @@ export function HeroCard(_props: { qr?: string }) {
 
   return (
     <div className="hero-card-wrap">
-      <button type="button" className={'hero-card' + (cut ? ' cut' : '')} onClick={toggle} aria-label={cut ? t('Join the halves') : t('Cut the card in two')} aria-pressed={cut}>
-        <svg viewBox={`-30 -50 ${W + 60} ${H + 110}`} aria-hidden="true">
+      <button type="button" className={'hero-card' + (cut ? ' cut' : '')} onClick={toggle} aria-label={cut ? t('Join the halves') : t('Cut the card in two')} aria-pressed={cut} data-tilt="6">
+        <svg className="tilt-in" viewBox={`-30 -50 ${W + 60} ${H + 110}`} aria-hidden="true">
           <defs>
             <linearGradient id="paperg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#fbf5e6" /><stop offset="1" stopColor="#ecdfc1" /></linearGradient>
             <filter id="cardsh" x="-20%" y="-30%" width="140%" height="170%"><feGaussianBlur stdDeviation="10" /></filter>

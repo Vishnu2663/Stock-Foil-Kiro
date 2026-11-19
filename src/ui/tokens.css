@@ -11,5 +11,19 @@
   --t-fast: 140ms; --t-mid: 280ms; --t-slow: 600ms;
   --ease-out: cubic-bezier(.2,.8,.2,1); --ease-spring: cubic-bezier(.3,1.6,.4,1);
   --mono: 'Courier Prime', 'Courier New', Courier, 'Noto Sans Mono', ui-monospace, monospace;
+  /* app-wide scale */
+  --c-bg: #15110d; --c-bg-2: #1d1712; --c-panel: rgba(255, 240, 220, .045); --c-stamp-hi: #d0503f; --c-stamp-lo: #b33c31;
+  --c-ok: #4cc38a; --c-warn: #f0a43a; --c-bad: #ff7b72; --c-muted: #b5a891;
+  --c-red: #e2584a; --c-muted-2: #a99d89; --c-cream: #ece0c8; --c-scan-lo: #b3321f;
+  --hairline: rgba(255, 232, 205, .14); --focus: #f0a43a;
+  --glass-bg: rgba(38, 30, 24, .78); --glass-solid: #221b15;
+  --r-8: 8px; --r-12: 12px; --r-16: 16px; --r-24: 24px;
+  --sh-sm: 0 1px 2px rgba(0, 0, 0, .35);
+  --sh-md: 0 1px 0 rgba(255, 240, 220, .04) inset, 0 10px 24px -14px rgba(0, 0, 0, .8);
+  --sh-lg: 0 30px 70px -24px rgba(0, 0, 0, .85), 0 8px 20px -10px rgba(0, 0, 0, .6);
+  --sh-glow: 0 10px 28px -8px rgba(208, 80, 63, .7);
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+  --m-120: 120ms; --m-200: 200ms; --m-320: 320ms; --m-600: 600ms;
+  --ease-std: cubic-bezier(.2, 0, 0, 1); --ease-emph: cubic-bezier(.2, .8, .2, 1);
 }
 .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }

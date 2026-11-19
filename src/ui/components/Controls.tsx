@@ -90,10 +90,21 @@ export function Money({ minor, currency }: { minor: number; currency: string }) 
   return <span className="nowrap" data-notranslate>{formatMoney(minor, currency)}</span>;
 }
 
+/** Counts up once the total scrolls into view (whole units while rolling, the exact value at the end). */
 export function CountUp({ value, currency, duration = 900 }: { value: number; currency: string; duration?: number }) {
   const [v, setV] = useState(value);
+  const host = useRef<HTMLSpanElement>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    const el = host.current;
+    if (!el || typeof IntersectionObserver === 'undefined') { setSeen(true); return; }
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { setSeen(true); io.disconnect(); } });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
   useEffect(() => {
     if (document.body.classList.contains('reduced')) { setV(value); return; }
+    if (!seen) { setV(0); return; }
     const start = performance.now();
     let raf = 0;
     const tick = (t: number) => {
@@ -105,6 +116,6 @@ export function CountUp({ value, currency, duration = 900 }: { value: number; cu
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [value, duration]);
-  return <Money minor={v} currency={currency} />;
+  }, [value, duration, seen]);
+  return <span ref={host}><Money minor={v} currency={currency} /></span>;
 }
