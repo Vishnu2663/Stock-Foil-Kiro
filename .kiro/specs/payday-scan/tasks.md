@@ -36,3 +36,8 @@
     imageIO (1600 px, EXIF orientation, <img> fallback); Settings → Scanner debug; calibration renamed
   - tests/cameraScan.test.ts, tests/cameraPhotos.ts
   - _Requirements: R6.1–R6.10_
+- [x] 11. Second recording: honest celebration, live HUD, capture moment, tally join, result reveal and layout
+  - celebrate.ts, anim.ts, thumb.ts, Motion.tsx, Camera.tsx, ResultView.tsx, Scan.tsx, Result.tsx (PaydayCard level),
+    Controls.tsx (CountUp whole units), capture.ts, pair.ts (sharedPunched), Settings (Sounds), pages.css
+  - tests/payday-ux.test.ts (8 tests); earlier scan tests unchanged and green
+  - _Requirements: R7.1–R7.11_

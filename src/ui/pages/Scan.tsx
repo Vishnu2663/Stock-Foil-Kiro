@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useApp } from '../ctx';
 import { Camera } from '../components/Camera';
-import { PaydayCard, HalfView, ChecksList, Slip, PayBreakdown, spokenResult, Money } from '../components/Result';
+import { Slip, PayBreakdown, spokenResult, Money } from '../components/Result';
+import { ResultHero, TallyPair, CheckTimeline, SlipPrint, WarningBanner, Section } from '../components/ResultView';
+import { celebrationLevel, resultKey } from '../celebrate';
+import { flushSync } from 'react-dom';
+import type { CameraMode } from '../components/Camera';
 import { Switch, Field } from '../components/Controls';
 import { Icon } from '../components/Icon';
 import { fileToImage, printHTML } from '../imageIO';
@@ -47,6 +51,8 @@ export default function Scan() {
   const { t, toast, settings, startCard } = useApp();
   const [halves, setHalves] = useState<HalfScan[]>([]);
   const [camera, setCamera] = useState(false);
+  const [camMode, setCamMode] = useState<CameraMode>('halves');
+  const resultRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
   const [overrides, setOverrides] = useState<{ S: Record<string, boolean>; F: Record<string, boolean> }>({ S: {}, F: {} });
@@ -82,7 +88,14 @@ export default function Scan() {
     });
   }, []);
 
-  useEffect(() => { if (have.S && have.F) setCamera(false); }, [have.S, have.F]);
+  const closeCamera = useCallback(() => {
+    const go = () => flushSync(() => setCamera(false));
+    const d = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+    if (d.startViewTransition && !document.body.classList.contains('reduced')) d.startViewTransition(go);
+    else go();
+    requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: document.body.classList.contains('reduced') ? 'auto' : 'smooth', block: 'start' }));
+  }, []);
+  const openJoin = useCallback(() => { setCamMode('join'); setCamera(true); window.scrollTo({ top: 0 }); }, []);
 
   // Save the scan to the ledger once per result (never for an unreliable photo).
   const saveScan = useCallback((force = false) => {
@@ -202,6 +215,9 @@ export default function Scan() {
     });
   };
 
+  const level = result ? celebrationLevel(result) : 'none';
+  const rkey = result ? resultKey(result, stock, foil) : '';
+  const showResult = !!result && !!spec && !camera;
   const oneS = new Set(result?.comparison ? [...result.comparison.stockOnly, ...result.comparison.foilOnly] : []);
   const dd = result?.comparison ? disputedDays(result.comparison) : { stock: [], foil: [] };
 
@@ -210,11 +226,11 @@ export default function Scan() {
       <h1>Payday scan</h1>
       <p className="lead">Photograph each half on a dark table. Keep all four corner squares and the wavy edge in view. You can also drag and drop photos here; they are read automatically.</p>
 
-      {!result && (
+      {!showResult && (
         <div className="stack" onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={(e) => { if (e.currentTarget === e.target) setOver(false); }} onDrop={onDrop}>
           <div className="panel cam-card">
             {camera
-              ? <Camera have={have} onHalf={addHalf} onClose={() => setCamera(false)} />
+              ? <Camera have={have} onHalf={addHalf} onClose={() => { setCamera(false); setCamMode('halves'); }} onDone={() => { closeCamera(); setCamMode('halves'); }} mode={camMode} />
               : (
                 <div className="cam-intro">
                   <svg className="phone-art" viewBox="0 0 70 120" aria-hidden="true">
@@ -227,7 +243,7 @@ export default function Scan() {
                   <div>
                     <h2>Scan with the camera</h2>
                     <p className="muted">Show each half in turn. It focuses, reads and captures by itself, no button to press.</p>
-                    <button className="btn primary" onClick={() => setCamera(true)}><Icon name="camera" /> Start camera</button>
+                    <button className="btn primary" onClick={() => { setCamMode('halves'); setCamera(true); }}><Icon name="camera" /> Start camera</button>
                   </div>
                 </div>
               )}
@@ -275,15 +291,34 @@ export default function Scan() {
         </div>
       )}
 
-      {result && spec && (
-        <>
+      {showResult && result && spec && (
+        <div className="rv" ref={resultRef}>
+          <WarningBanner halves={[stock, foil]} />
           {paid && (
             <div className={'note ' + (paid.changed ? 'bad' : 'good')}>
               {t('Already paid on {0}', new Date(paid.at).toLocaleDateString())}
               {paid.changed && <> · {t('Warning: the amount now differs from the payment ({0}).', formatMoney(paid.paid.netMinor, spec.currency))}</>}
             </div>
           )}
-          <PaydayCard result={result} rateChange={rateChange}>
+          <ResultHero
+            result={result}
+            rkey={rkey}
+            level={level}
+            onJoin={openJoin}
+            actions={(
+              <>
+                <button className="btn good big rv-paid" onClick={markPaid} disabled={!canSave || (!!paid && !paid.changed)}>💰 {t('Mark as paid')}</button>
+                <div className="rv-icons">
+                  <button className="btn icon-btn" onClick={addToCrew} disabled={!canSave} title={t('Add to crew')}><Icon name="crew" /><span>{t('Add to crew')}</span></button>
+                  <button className="btn icon-btn" onClick={printSlip} disabled={!canSave} title={t('Print slip')}><Icon name="print" /><span>{t('Print slip')}</span></button>
+                  <button className="btn icon-btn" onClick={listen} disabled={!canSave} title={t('Listen')}><Icon name="speaker" /><span>{t('Listen')}</span></button>
+                  <button className="btn icon-btn" onClick={doExplain} disabled={!result.pay || settings.aiProvider === 'off'} title={t('Explain')}>💬<span>{t('Explain')}</span></button>
+                  {result.pay && result.pay.agreed.net < 0 && canSave && <button className="btn icon-btn" onClick={carryOn} title={t('Carry this balance to next month')}>↪<span>{t('Carry over')}</span></button>}
+                  <button className="btn icon-btn" onClick={reset} title={t('Scan another')}><Icon name="scan" /><span>{t('Scan another')}</span></button>
+                </div>
+              </>
+            )}
+          >
             {rateChange && <div className="chip warn" style={{ marginTop: 10 }}>{t('Wage changed from day {0}: {1}', rateChange.fromDay, formatMoney(rateChange.rateMinor, spec.currency))}</div>}
             {result.pay && result.pay.disputed > 0 && (
               <div className="note" style={{ marginTop: 12 }}>
@@ -296,53 +331,43 @@ export default function Scan() {
             )}
             {result.verdict === 'unreliable' && <div className="note bad" style={{ marginTop: 12 }}>{t('Fewer than 3 corner squares were found on a half. Take the photos again. The slip and the ledger save are disabled.')}</div>}
             {result.verdict === 'pair-mismatch' && <div className="note bad" style={{ marginTop: 12 }}>{t('These two halves do not belong together. Nothing is paid.')}</div>}
-            <div className="row" style={{ marginTop: 16 }}>
-              <button className="btn good" onClick={markPaid} disabled={!canSave}>💰 Mark as paid</button>
-              <button className="btn" onClick={addToCrew} disabled={!canSave}><Icon name="crew" /> Add to crew</button>
-              <button className="btn" onClick={printSlip} disabled={!canSave}><Icon name="print" /> Print slip</button>
-              <button className="btn" onClick={listen} disabled={!canSave}><Icon name="speaker" /> Listen</button>
-              <button className="btn" onClick={doExplain} disabled={!result.pay}>💬 Explain</button>
-              {result.pay && result.pay.agreed.net < 0 && canSave && <button className="btn" onClick={carryOn}>↪ Carry this balance to next month&apos;s card</button>}
-              <button className="btn ghost" onClick={reset}><Icon name="scan" /> Scan another</button>
-            </div>
             {explainText && (
               <div className="note" style={{ marginTop: 12, whiteSpace: 'pre-line' }} data-notranslate>
                 {explainText.note && <div className="muted small">{explainText.note}</div>}
                 {explainText.text}
               </div>
             )}
-          </PaydayCard>
+          </ResultHero>
 
-          <div className="panel">
-            <Switch checked={wageChange} onChange={(v) => { setWageChange(v); setSavedKey(''); }} label={t('Wage changed this month')} />
-            {wageChange && (
-              <div className="grid cols-2" style={{ marginTop: 8 }}>
-                <Field label={t('From day')}><input inputMode="numeric" value={fromDay} onChange={(e) => setFromDay(e.target.value)} /></Field>
-                <Field label={t('New daily wage')} hint={formatMoney(spec.rateMinor, spec.currency) + ' → ?'}><input inputMode="decimal" value={newWage} onChange={(e) => setNewWage(e.target.value)} placeholder="550" /></Field>
-              </div>
-            )}
-          </div>
-
-          <div className="grid cols-2">
-            {stock && <HalfView half={stock} title={t('Worker half (stock)')} oneSided={oneS} overrides={overrides.S} onToggle={toggle('S')} />}
-            {foil && <HalfView half={foil} title={t('Employer half (foil)')} oneSided={oneS} overrides={overrides.F} onToggle={toggle('F')} />}
-          </div>
-          {result.comparison && result.comparison.unsureCount > 0 && <p className="note">{t('Dashed circles are unsure. Tap a day to correct it. Corrections are marked manual.')}</p>}
-
-          <div className="grid cols-2">
-            <div className="panel">
-              <h2>Checks</h2>
-              <ChecksList result={result} />
+          <div className="rv-grid">
+            <div className="rv-main">
+              <Section title={t('The tally')}>
+                <TallyPair stock={stock} foil={foil} oneSided={oneS} overrides={overrides} onToggle={toggle} level={level} rkey={rkey} />
+                {result.comparison && result.comparison.unsureCount > 0 && <p className="small ui rv-hint">{t('Dashed amber circles are unsure. Tap a day to correct it. Corrections are marked manual.')}</p>}
+              </Section>
+              <Section title={t('Checks')}>
+                <CheckTimeline result={result} onJoin={openJoin} rkey={rkey} />
+              </Section>
+              <Section title={t('Wage change')} className="rv-wage">
+                <Switch checked={wageChange} onChange={(v) => { setWageChange(v); setSavedKey(''); }} label={t('Wage changed this month')} />
+                {wageChange && (
+                  <div className="grid cols-2" style={{ marginTop: 8 }}>
+                    <Field label={t('From day')}><input inputMode="numeric" value={fromDay} onChange={(e) => setFromDay(e.target.value)} /></Field>
+                    <Field label={t('New daily wage')} hint={formatMoney(spec.rateMinor, spec.currency) + ' → ?'}><input inputMode="decimal" value={newWage} onChange={(e) => setNewWage(e.target.value)} placeholder="550" /></Field>
+                  </div>
+                )}
+              </Section>
             </div>
-            <div className="panel">
-              <h2>Pay slip</h2>
-              {canSave && result.pay
-                ? <div ref={slipRef}><Slip spec={spec} view={result.pay.agreed} disputedDays={[...new Set([...dd.stock, ...dd.foil])]} /></div>
-                : <p className="muted">The slip is available for a verified pair with clear photos.</p>}
-              {canSave && result.pay && <p className="small muted" style={{ marginTop: 8 }}>{t('Total')}: <Money minor={result.pay.agreed.net} currency={spec.currency} /></p>}
-            </div>
+            <aside className="rv-side">
+              <Section title={t('Pay slip')}>
+                {canSave && result.pay
+                  ? <SlipPrint rkey={rkey}><div ref={slipRef}><Slip spec={spec} view={result.pay.agreed} disputedDays={[...new Set([...dd.stock, ...dd.foil])]} /></div></SlipPrint>
+                  : <p className="muted">{t('The slip is available for a verified pair with clear photos.')}</p>}
+                {canSave && result.pay && <p className="small muted" style={{ marginTop: 8 }}>{t('Total')}: <Money minor={result.pay.agreed.net} currency={spec.currency} /></p>}
+              </Section>
+            </aside>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

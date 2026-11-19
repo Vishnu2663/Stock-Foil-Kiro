@@ -21,6 +21,16 @@
     "Fewer than 4 shared holes: not checked",
     "{0} of 4 corner squares",
     "{0} days",
-    "{0} full days + {1} half days = {2} days"
+    "{0} full days + {1} half days = {2} days",
+    "Holes match · cut not checked",
+    "Show the worker half (stock) to the camera.",
+    "Show the employer half (foil) to the camera.",
+    "These halves come from different cards. Find the matching half.",
+    "One half was reprinted or edited. Use the original halves.",
+    "These halves were not issued together, or one was made up.",
+    "Lay both halves edge to edge on a dark table and check the cut.",
+    "Tap the one-sided or unsure days and check them by eye.",
+    "A hole looks punched separately. Check it by eye with both halves stacked.",
+    "Retake the photo with all 4 corner squares in view."
   ]
 }

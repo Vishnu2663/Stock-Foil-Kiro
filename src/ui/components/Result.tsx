@@ -9,6 +9,7 @@ import { cashBreakdown } from '../../core/cash';
 import { slipDict, fill } from '../../i18n/index';
 import { partyPops } from '../fx';
 import { CountUp, Money } from './Controls';
+import { celebrationLevel, resultKey, stampFor } from '../celebrate';
 import { useApp } from '../ctx';
 
 export const daysText = (v: PayView) => (v.days % 1 ? `${Math.floor(v.days)}½` : String(v.days));
@@ -17,11 +18,19 @@ export const warningText = (w: WarningCode) => WARNING_TEXT[w];
 export function PaydayCard({ result, children, compact, rateChange }: { result: PairResult; children?: ReactNode; compact?: boolean; rateChange?: RateChange }) {
   const { t } = useApp();
   const ref = useRef<HTMLDivElement>(null);
-  const tone = verdictTone(result.verdict);
-  const genuine = result.verdict === 'genuine-consistent';
+  const level = celebrationLevel(result);
+  const stamp = stampFor(result, level, VERDICT_LABEL[result.verdict]);
+  const tone = level === 'match' ? 'warn' : verdictTone(result.verdict);
+  const genuine = level === 'full';
+  const key = resultKey(result);
+  const played = useRef('');
   useEffect(() => {
-    if (genuine && ref.current) partyPops(ref.current);
-  }, [genuine, result]);
+    // once per distinct result, for FULL and MATCH (an honest "cut not checked" with every hole matching)
+    if (played.current === key || !ref.current) return;
+    played.current = key;
+    if (level === 'full') partyPops(ref.current, 60);
+    else if (level === 'match') partyPops(ref.current, 28);
+  }, [key, level]);
   const spec = result.spec;
   const pay = result.pay?.agreed;
   return (
@@ -31,7 +40,7 @@ export function PaydayCard({ result, children, compact, rateChange }: { result: 
           <div className="kicker" data-notranslate>{spec ? `${MONTH_NAMES[spec.month - 1]} ${spec.year}` : ''}</div>
           {spec && <h2 style={{ margin: 0 }} data-notranslate>{spec.worker} · {spec.employer}</h2>}
         </div>
-        <span className={`stamp ${tone}`} role="status">{t(VERDICT_LABEL[result.verdict])}</span>
+        <span className={`stamp ${stamp.tone}`} role="status">{t(stamp.text)}</span>
       </div>
       {pay && spec && result.verdict !== 'pair-mismatch' && (
         <div style={{ marginTop: 14 }}>

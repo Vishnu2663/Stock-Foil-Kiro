@@ -61,3 +61,14 @@ The screens have no properties of their own. Their rules are checked through:
   The displayed video rect (object-fit: contain) is measured and the viewfinder, flash and status bar are placed in it.
 - `src/ui/scanAsync.ts`: `scanImages` falls back to `scanHere` (main thread, after 30 ms) on any worker failure.
 - Scanner changes are in .kiro/specs/vision-scanner (pose, punches, edge) and pair-and-pay (edge match, alignment).
+
+## R7 design
+- `src/ui/celebrate.ts`: celebrationLevel, stampFor, particleCount, resultKey, rollValue (pure, tested).
+- `src/ui/anim.ts`: createScope (timers, rAFs, WAAPI and sounds, all cancelled by dispose), confetti (one canvas, removed
+  when done), kaChunk (WebAudio click + thump), revealPlan (timeline; instant with reduced motion).
+- `src/ui/thumb.ts`: warpThumb (flat snapshot through H), wavePaths (clip paths and seam from makeWave).
+- `src/ui/components/Motion.tsx`: Odometer (digit strips, transform only), Typer.
+- `src/ui/components/Camera.tsx`: HUD canvas, tray, pill, join overlay; `mode: 'join'`; `onDone`.
+- `src/ui/components/ResultView.tsx`: ResultHero, TallyPair (paper halves + connecting lines), CheckTimeline,
+  SlipPrint, WarningBanner, Section. `Scan.tsx` keeps the camera mounted until `onDone`, then startViewTransition.
+- `src/vision/capture.ts`: drawablePose / POSE_MAX_AGE; `pair.ts`: sharedPunched and the align check text.

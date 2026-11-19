@@ -165,7 +165,7 @@ describe('foundation: settings', () => {
       runs(300),
     );
     expect(sanitizeSettings(null)).toEqual(DEFAULT_SETTINGS);
-    const custom = { ...DEFAULT_SETTINGS, lang: 'ta', simple: true, speakRate: 1.1, scannerDebug: true, calibration: { punchRatio: 0.6, alignTolMm: 1.4 } };
+    const custom = { ...DEFAULT_SETTINGS, lang: 'ta', simple: true, speakRate: 1.1, scannerDebug: true, sounds: false, calibration: { punchRatio: 0.6, alignTolMm: 1.4 } };
     expect(sanitizeSettings(JSON.parse(JSON.stringify(custom)))).toEqual(custom);
     // calibration saved under the earlier names is still read
     expect(sanitizeSettings({ calibration: { threshold: 0.58, tolerance: 1.5 } }).calibration).toEqual({ punchRatio: 0.58, alignTolMm: 1.5 });

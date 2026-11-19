@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { rollValue } from '../celebrate';
 import { MONTH_NAMES, formatMoney } from '../../core/card';
 
 export function Switch({ checked, onChange, label, hint }: { checked: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) {
@@ -98,7 +99,8 @@ export function CountUp({ value, currency, duration = 900 }: { value: number; cu
     const tick = (t: number) => {
       const k = Math.min(1, (t - start) / duration);
       const e = 1 - Math.pow(1 - k, 3);
-      setV(Math.round(value * e));
+      setV(rollValue(value, k)); // whole rupees while rolling, the exact amount at the end
+      void e;
       if (k < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);

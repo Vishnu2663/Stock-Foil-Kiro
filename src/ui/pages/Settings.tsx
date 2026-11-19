@@ -98,6 +98,7 @@ export default function Settings() {
             <a className="btn" href="#/calibrate">{t('Calibrate')}</a>
             <button className="btn" onClick={() => { setSettings({ calibration: {} }); toast(t('Back to the default settings.'), 'good'); }}>{t('Reset calibration')}</button>
           </div>
+          <Switch checked={settings.sounds} onChange={(v) => setSettings({ sounds: v })} label={t('Sounds')} hint={t('A quiet punch-clock sound when a half is captured.')} />
           <Switch checked={settings.scannerDebug} onChange={(v) => setSettings({ scannerDebug: v })} label={t('Scanner debug')} hint={t('Shows corner squares found, px per mm, paper and background brightness and cell counts on the camera picture. No names or card data.')} />
         </div>
         <div className="panel stack">

@@ -42,3 +42,12 @@ export function debugLine(h: HalfScan): string {
   const bg = h.bgRef / h.paperRef;
   return `corners ${h.pose.fiducialsFound}/4${missed.length ? ` (missed ${missed.join(',')})` : ''} · ${h.pose.method} · ${h.pose.pxPerMm.toFixed(2)} px/mm · paper ${(h.paperRef / 255).toFixed(2)} · bg/paper ${Number.isFinite(bg) ? bg.toFixed(2) : '–'} · punched ${s.punched} · blank ${s.blank} · unsure ${s.unsure}`;
 }
+
+/** The overlay never draws a pose older than this (a hand-held card moves). */
+export const POSE_MAX_AGE = 600;
+export interface LivePose<T> { halves: T[]; at: number; scale?: number }
+/** What the overlay may draw at time now: nothing when there is no card or the pose is stale. */
+export function drawablePose<T, L extends LivePose<T>>(live: L | null, now: number): L | null {
+  if (!live || !live.halves.length) return null;
+  return now - live.at > POSE_MAX_AGE ? null : live;
+}

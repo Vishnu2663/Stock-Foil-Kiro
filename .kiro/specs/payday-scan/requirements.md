@@ -90,3 +90,33 @@ Reference: docs/BUILD_BRIEF.md §4 Phase 7.
 9. WHEN the scan worker fails THE SYSTEM SHALL scan on the main thread after 30 ms; WHEN a frame cannot be read it SHALL
    say "Could not read that frame, trying again…".
 10. THE SYSTEM SHALL pass the saved calibration (punchRatio, alignTolMm) to every scan and pair check.
+## R7 Presentation, HUD, capture, transition and reveal (second recording)
+1. THE SYSTEM SHALL derive a celebration level from the result without changing the verdict: FULL (genuine-consistent,
+   paid), MATCH (inconclusive with both halves, same id and code, every punch agreeing and no mismatch), WARN (review,
+   genuine-disputed, other inconclusive), BAD (pair-mismatch), NONE (unreliable). MATCH SHALL stamp "Holes match · cut
+   not checked" in amber and offer "Check the cut", which opens the camera in join mode (both halves in one frame).
+2. THE SYSTEM SHALL play the reveal and celebration once per distinct result (result key), for camera and dropped photos.
+3. The camera box SHALL take the video's aspect ratio (no letterbox) and go full screen on phones (≤ 560 px).
+4. The HUD SHALL show: corner brackets that fly to each found square (220 ms ease-out) with one ping, orange pulsing
+   brackets at missed squares, a 300 ms outline glow when all 4 lock, a laser mapped through the homography (red
+   searching, green locked), punch rings that pop on each state change (green punched, grey blank, amber dashed rotating
+   unsure), live tally chips (days · advances · amount) and a lock ring (0 → 50% after one clean read → 100% at capture).
+5. THE SYSTEM SHALL never draw rings or outline from a pose older than 600 ms, SHALL clear them at once when a scan finds
+   no card, and SHALL smooth drawn points toward the newest pose (lerp 0.35 per frame).
+6. A capture SHALL flash (0.85 → 0 in 140 ms), shake 2 px for 120 ms, vibrate 60 ms, play a quiet synthesized punch-clock
+   sound (Settings → Sounds, default on; never with reduced motion or a hidden tab), and fly a flattened snapshot of the
+   half into its tray slot (450 ms).
+7. After the second capture THE SYSTEM SHALL join the two snapshots on the card's own wave with a seam spark (green when
+   the ids match, red with a shake otherwise), then turn into the result (View Transitions when available) in about 1.4 s;
+   a tap skips to the end.
+8. The result SHALL slam the stamp (from scale 2.6, −18°) with ink blots, roll the amount like an odometer in whole units
+   (paise only after the roll), type the formula, flip the day boxes in row by row with punched holes and falling chads,
+   tear in the advance stubs with coins, fan out the notes, and celebrate by level (FULL 90 pieces + sheen, MATCH 40 +
+   sheen, WARN pulse unsure 3× and scroll to it, BAD shake and blink one-sided holes, NONE nothing). Reduced motion SHALL
+   show the final state at once with no particles, shake or sound; phones use half the particles and no ink blots.
+9. Layout: hero (stamp, amount, formula, notes, big "Mark as paid", icon actions); the two halves as sepia paper cards
+   with real holes and wavy edges, one-sided spots joined by a red line, unsure spots dashed amber with "tap to confirm";
+   a check timeline with self-drawing ticks and a fix line for each failed check; the slip printing out of a slot. Two
+   columns from 1000 px (slip sticky), one column with foldable sections below. All photo warnings in one banner.
+10. The punched-together check SHALL report how many holes are on both halves and say why positions could not be checked.
+11. Closing the camera SHALL cancel every timer, animation frame, animation and sound it started.

@@ -17,6 +17,8 @@ export interface Settings {
   calibration: { punchRatio?: number; alignTolMm?: number };
   /** Show the scanner debug line under the camera picture. */
   scannerDebug: boolean;
+  /** Punch-clock sound when a half is captured (quiet; never with reduced motion or a hidden tab). */
+  sounds: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   simple: false,
   calibration: {},
   scannerDebug: false,
+  sounds: true,
 };
 
 export interface KV { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }

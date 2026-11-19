@@ -173,6 +173,8 @@ export interface PairResult {
   spec: CardSpec | null;
   poseOk: boolean;
   pairOk: boolean;
+  /** cells punched on BOTH halves (alignment needs their hole centres, which may not be measurable) */
+  sharedPunched: number;
   minFiducials: number;
 }
 
@@ -235,6 +237,7 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
   let comparison: Comparison | null = null;
   let pay: ThreeViews | null = null;
   let align: Alignment | null = null;
+  let sharedPunched = 0;
   const spec = both ? stock!.decoded.spec : stock?.decoded.spec ?? foil?.decoded.spec ?? null;
   if (both && sameId) {
     const s = punchSets(stock!, opts.overrides?.S);
@@ -248,6 +251,7 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
     };
     pay = threeViews(comparison, terms);
     align = alignment(holesFromScans(stock!, foil!), opts.alignTolMm ?? 1.2);
+    sharedPunched = [...comparison.agreed].length;
   }
   const oneSided = comparison ? comparison.stockOnly.size + comparison.foilOnly.size : 0;
   checks.push({
@@ -258,7 +262,9 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
   checks.push({
     id: 'align', label: 'Holes punched together',
     ok: align ? (align.checked ? align.flagged.length === 0 : null) : null,
-    detail: align ? (align.checked ? (align.flagged.length ? `${align.flagged.length} hole(s) look punched separately` : `${align.shared} holes line up`) : 'Fewer than 4 shared holes: not checked') : '',
+    detail: align ? (align.checked ? (align.flagged.length ? `${align.flagged.length} hole(s) look punched separately` : `${align.shared} holes line up`)
+      : sharedPunched >= 4 ? `${sharedPunched} holes are on both halves, but their positions show only when holes look darker than the card. Put the halves on a dark surface to check this.`
+      : `Only ${sharedPunched} hole(s) on both halves: 4 are needed to check`) : '',
   });
   const minFiducials = Math.min(stock?.pose.fiducialsFound ?? 0, foil?.pose.fiducialsFound ?? 0);
   const poseOk = both && minFiducials >= 3;
@@ -271,7 +277,7 @@ export function verifyPair(stock: HalfScan | undefined, foil: HalfScan | undefin
   else if (align!.flagged.length > 0) verdict = 'review';
   else if (edge!.status === 'inconclusive' && pairing === 'legacy') verdict = 'inconclusive';
   else verdict = 'genuine-consistent';
-  return { verdict, checks, pairing, edge, align, comparison, pay, spec, poseOk, pairOk, minFiducials };
+  return { verdict, checks, pairing, edge, align, comparison, pay, spec, poseOk, pairOk, minFiducials, sharedPunched };
 }
 
 /** Pick the worker and employer halves from many scanned photos. */
