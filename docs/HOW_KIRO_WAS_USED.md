@@ -9,7 +9,7 @@ All of the work was done in **Kiro IDE**, in agent chat sessions. Kiro CLI, Kiro
 there is no comparison between surfaces to report.
 
 ## Brief first, then steering
-The project started with a long written brief (`docs/BUILD_BRIEF.md`): the product, the users, the 1834 story, the
+The project started with a build brief created first using Kiro AI (`docs/BUILD_BRIEF.md`): the product, the users, the 1834 story, the
 hard rules, exact layout and scanner numbers, and the submission requirements. Steering makes sure Kiro reads it
 in every session:
 

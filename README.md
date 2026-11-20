@@ -65,6 +65,8 @@ All in `tests/`, written with fast-check. The photo simulator (`src/render/scene
 - The supported capture envelope is about ±25° rotation, mild tilt, blur ≲1.3 px at ~3.6 px/mm, noise, uneven light, the whole half in frame. Outside it the app warns instead of guessing.
 
 ## Built with Kiro
+**The build brief came first.** Before any code, the full build brief was created using Kiro AI: product, users, the 1834 story, hard rules, exact layout and scanner numbers, and the submission requirements. It is in [docs/BUILD_BRIEF.md](docs/BUILD_BRIEF.md), and the steering file `product.md` includes it in every Kiro session, so every spec, hook and line of code was built from it.
+
 
 Everything Kiro used is in [`.kiro/`](.kiro/): 14 specs (`.kiro/specs/`), steering (`.kiro/steering/`), agent hooks (`.kiro/hooks/`) and custom agents (`.kiro/agents/`). The write-up is [docs/HOW_KIRO_WAS_USED.md](docs/HOW_KIRO_WAS_USED.md), the build log is [docs/KIRO_LOG.md](docs/KIRO_LOG.md) and the original brief is [docs/BUILD_BRIEF.md](docs/BUILD_BRIEF.md). Deployment: [DEPLOY.md](DEPLOY.md).
 
