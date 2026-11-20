@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { encodePayload, formatCode, formatMoney, cardCode, MONTH_NAMES, type CardSpec, type Role } from '../core/card';
 import {
   A4, FRAME_W, FRAME_H, FIDUCIALS, FID_SIZE, QR_BOX, HOLE_R, STOCK_ORIGIN, FOIL_ORIGIN,
-  NOMINAL_CUT_Y, targetsFor, ADV, GRID, INFO_BOX, RECEIVED_BOX, THUMB_GUIDE, type Target,
+  NOMINAL_CUT_Y, targetsFor, ADV, GRID, panelFor, type Target,
 } from '../core/layout';
 import { makeWave, wavePath } from '../core/wave';
 
@@ -108,19 +108,17 @@ function fitText(x: number, y: number, t: string, size: number, maxW: number, at
   return `<text x="${x}" y="${y}" font-size="${size}"${squeeze} ${attrs}>${esc(t)}</text>`;
 }
 
-/** The merged info box: "№ code" on line 1, "₹700/day · advance ₹100" on line 2, and a "✓ Paired" tag. */
+/** The info box under the QR: "№ code" large on line 1, "₹700/day · advance ₹100" on line 2, "✓ Paired" on line 3. */
 export function infoBoxSvg(spec: CardSpec, code: string, lang: string): string {
-  const { x, y, w, h } = INFO_BOX;
+  const { x, y, w, h } = panelFor(spec).info;
   const L = panelText(lang);
   const money = (m: number) => formatMoney(m, spec.currency);
   const out: string[] = [box(x, y, w, h)];
-  const tag = spec.pairing ? L.paired : '';
-  const tagW = tag ? textWidth(tag, 2.1) + 2 : 0;
-  // the № sign is drawn on its own at a larger size (in most fonts it is small next to the digits)
-  out.push(`<text x="${x + 2}" y="${y + 6.3}" font-size="5" font-weight="700" fill="${C.ink}">№</text>`);
-  out.push(fitText(x + 7.4, y + 6, code, 3.6, w - 9.4 - tagW, `font-weight="700" letter-spacing="0.2" fill="${C.ink}"`));
-  if (tag) out.push(`<text x="${x + w - 1.8}" y="${y + 5.2}" font-size="2.1" font-weight="700" text-anchor="end" fill="${C.green}">${esc(tag)}</text>`);
-  out.push(fitText(x + 2, y + 11, `${money(spec.rateMinor)}${L.day} · ${L.adv} ${money(spec.advMinor)}`, 2.2, w - 4, `fill="${C.soft}"`));
+  // the № sign is drawn on its own, larger (in most fonts it is small next to the digits)
+  out.push(`<text x="${x + 2}" y="${y + 5.9}" font-size="5.6" font-weight="700" fill="${C.ink}">№</text>`);
+  out.push(fitText(x + 7.6, y + 5.7, code, 4.4, w - 9.6, `font-weight="700" letter-spacing="0.2" fill="${C.ink}"`));
+  out.push(fitText(x + 2, y + 9.3, `${money(spec.rateMinor)}${L.day} · ${L.adv} ${money(spec.advMinor)}`, 2.1, w - 4, `fill="${C.soft}"`));
+  if (spec.pairing) out.push(fitText(x + 2, y + 12.1, L.paired, 1.9, w - 4, `font-weight="700" fill="${C.green}"`));
   return out.join('');
 }
 
@@ -133,10 +131,11 @@ const thumbGlyph = (x: number, y: number, col: string) => {
 };
 
 /** The RECEIVED box: double-ruled frame, a plain light inner area, a faint dotted thumb guide, label and caption. */
-export function receivedBoxSvg(role: Role, lang: string): string {
-  const { x, y, w, h } = RECEIVED_BOX;
+export function receivedBoxSvg(role: Role, lang: string, spec?: CardSpec): string {
+  const pb = panelFor(spec ?? {});
+  const { x, y, w, h } = pb.box;
   const L = panelText(lang);
-  const g = THUMB_GUIDE;
+  const g = pb.guide;
   const out: string[] = [
     `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#fff" stroke="${C.line}" stroke-width="0.35"/>`,
     `<rect x="${x + 0.9}" y="${y + 0.9}" width="${w - 1.8}" height="${h - 1.8}" fill="none" stroke="${C.rule}" stroke-width="0.15"/>`,
@@ -223,7 +222,7 @@ export function halfSvg(spec: CardSpec, role: Role, opts: HalfOptions = {}): str
   p.push(`<path d="${qrPath(qr)}" fill="${C.mark}"/>`);
   // right panel: ONE info box (№ code · rate · advance · paired), then the RECEIVED box
   p.push(infoBoxSvg(spec, code, lang));
-  if (spec.receiptBox) p.push(receivedBoxSvg(role, lang));
+  if (spec.receiptBox) p.push(receivedBoxSvg(role, lang, spec));
   // footer
   const fy = FRAME_H - 3.5, right = FRAME_W - 14;
   if (spec.discs) p.push(`<text x="${right}" y="${FRAME_H - 7.4}" font-size="2.4" font-weight="700" text-anchor="end" fill="${C.ink}">Punch out each grey disc.</text>`);

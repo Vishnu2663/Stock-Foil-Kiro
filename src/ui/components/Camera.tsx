@@ -6,7 +6,7 @@ import type { HalfScan } from '../../vision/detect';
 import { captureBlocker, debugLine, readingSummary, drawablePose, POSE_MAX_AGE, POSE_MAX_AGE_TABLE, joinBlocker, joinGap, edgeBlocker, type Blocker } from '../../vision/capture';
 import { medianEdges, EDGE_XS } from '../../vision/detect';
 import { makeWave } from '../../core/wave';
-import { RECEIVED_BOX } from '../../core/layout';
+import { panelFor } from '../../core/layout';
 import { saveMarkPic } from '../../store/index';
 import { receiptStep, type ReceiptCapture } from '../../core/received';
 import type { ReceiptRead } from '../../vision/receipt';
@@ -25,12 +25,13 @@ import { sharpness, BLUR_MIN, fillRatio, FILL_MIN, isFastMotion, readKey, voteRe
 
 /** The RECEIVED box as a 96 px wide, blurred, low-contrast JPEG (evidence only; never a sharp print). */
 function markPicture(img: { width: number; height: number; data: Uint8ClampedArray }, h: HalfScan): string {
-  const W = 96, H = Math.round((96 * RECEIVED_BOX.h) / RECEIVED_BOX.w);
+  const RB = panelFor(h.decoded.spec).box;
+  const W = 96, H = Math.round((96 * RB.h) / RB.w);
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d')!;
   const out = g.createImageData(W, H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const [u, v] = applyH(h.pose.H, RECEIVED_BOX.x + ((x + 0.5) / W) * RECEIVED_BOX.w, RECEIVED_BOX.y + ((y + 0.5) / H) * RECEIVED_BOX.h);
+    const [u, v] = applyH(h.pose.H, RB.x + ((x + 0.5) / W) * RB.w, RB.y + ((y + 0.5) / H) * RB.h);
     const px = Math.min(img.width - 1, Math.max(0, Math.round(u))), py = Math.min(img.height - 1, Math.max(0, Math.round(v)));
     const i = (py * img.width + px) * 4, o = (y * W + x) * 4;
     for (let k = 0; k < 3; k++) out.data[o + k] = 150 + (img.data[i + k] - 150) * 0.45; // low contrast
@@ -639,7 +640,7 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
         // cut-edge overlay (join / edges): the designed wave as a ghost of where the partner fits, and the
         // traced edge as dots, green where it was traced and grey where it was not
         if (modeRef.current === 'receipt') {
-          const rb = RECEIVED_BOX, rr = half.receipt;
+          const rb = panelFor(half.decoded.spec).box, rr = half.receipt;
           const pts = ([[rb.x, rb.y], [rb.x + rb.w, rb.y], [rb.x + rb.w, rb.y + rb.h], [rb.x, rb.y + rb.h]] as Pt[]).map(([x, y]) => at(x, y));
           const col = rr?.status === 'present' ? green : rr?.status === 'unclear' ? amber : 'rgba(255,240,220,.85)';
           g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.closePath();

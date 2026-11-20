@@ -5,7 +5,7 @@ import jsQR from 'jsqr';
 import { decodePayload, looksLikeOurs, type DecodedHalf, type CardSpec, type Role } from '../core/card';
 import { applyH, findAffine, solveHomography, localScale, type Hom, type Pt } from '../core/homography';
 import {
-  FIDUCIALS, FID_SIZE, SAMPLE_R, targetsFor, PIECE_X0, PIECE_X1, STOCK_TOP, FOIL_BOTTOM, FRAME_W, FRAME_H, qrCorners,
+  FIDUCIALS, FID_SIZE, SAMPLE_R, panelFor, targetsFor, PIECE_X0, PIECE_X1, STOCK_TOP, FOIL_BOTTOM, FRAME_W, FRAME_H, qrCorners,
 } from '../core/layout';
 import { readReceipt, minRG, type ReceiptRead } from './receipt';
 import { toGray, grayToRGBA, sample, boxBlur, unsharp, upscale2, median, type Gray, type RGBAImage } from './image';
@@ -774,7 +774,7 @@ export function scanHalf(g: Gray, qr: QRHit, decoded: DecodedHalf, opts: ScanOpt
   const side: number[] = [];
   for (const y of [20, 50, 80, 110]) for (const x of [PIECE_X0 - 6, PIECE_X1 + 6]) side.push(discMean(g, pose.H, x, y, 1, 0.5));
   const sideRef = median(side.filter(Number.isFinite));
-  const receipt = spec.receiptBox ? readReceipt(inkChannel ? inkChannel() : g, pose.H, { blurry: warnings.has('blurry') }) : undefined;
+  const receipt = spec.receiptBox ? readReceipt(inkChannel ? inkChannel() : g, pose.H, { blurry: warnings.has('blurry'), area: panelFor(spec).area }) : undefined;
   return {
     ...(receipt ? { receipt } : {}),
     decoded, qr, pose, cells: pr.cells, edge, edgeCoverage: coverage, paperRef: pr.paperRef, bgRef: pr.bgRef, sideRef,

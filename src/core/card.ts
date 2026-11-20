@@ -19,8 +19,8 @@ export interface CardSpec {
   pairing?: { sa: string; sf: string };
   halves?: boolean;
   discs?: boolean;
-  /** printed with a RECEIVED box for the worker's thumb mark at payday (new cards) */
-  receiptBox?: boolean;
+  /** printed with a RECEIVED box for the worker's thumb mark at payday: true = first layout ('r'), 2 = aligned under the QR ('R', new cards) */
+  receiptBox?: boolean | 2;
   revisedFrom?: string;
   /** the member this card was issued for (local record only; never in the QR or the card code) */
   memberId?: string;
@@ -63,7 +63,7 @@ export function cardCode(spec: CardSpec): string {
   if (spec.carryMinor !== 0) parts.push('c' + spec.carryMinor);
   if (spec.halves) parts.push('h2');
   if (spec.discs) parts.push('d3');
-  if (spec.receiptBox) parts.push('r1');
+  if (spec.receiptBox) parts.push(spec.receiptBox === 2 ? 'r2' : 'r1');
   return toBase32(hash53(parts.join('|'), 0x5f0), 6);
 }
 
@@ -112,7 +112,7 @@ export function makeCard(input: NewCardInput, id: string = newCardId()): CardSpe
   if (input.pairing !== false) spec.pairing = newPairing();
   if (input.halves) spec.halves = true;
   if (input.discs) spec.discs = true;
-  if (input.receiptBox !== false) spec.receiptBox = true;
+  if (input.receiptBox !== false) spec.receiptBox = 2;
   if (input.revisedFrom) spec.revisedFrom = input.revisedFrom;
   if (input.memberId) spec.memberId = input.memberId;
   return spec;
@@ -123,7 +123,7 @@ export function versionTag(spec: CardSpec): string {
   if (spec.pairing) v += 'p';
   if (spec.halves) v += 'h';
   if (spec.discs) v += 'd';
-  if (spec.receiptBox) v += 'r';
+  if (spec.receiptBox) v += spec.receiptBox === 2 ? 'R' : 'r';
   return v;
 }
 
@@ -159,13 +159,13 @@ const INT_RE = /^-?\d{1,9}$/;
 export function decodePayload(raw: string): DecodedHalf | null {
   if (typeof raw !== 'string') return null;
   const f = raw.split('|');
-  const m = /^SF([12])(p?)(h?)(d?)(r?)$/.exec(f[0] ?? '');
+  const m = /^SF([12])(p?)(h?)(d?)([rR]?)$/.exec(f[0] ?? '');
   if (!m) return null;
   const two = m[1] === '2';
   const paired = m[2] === 'p';
   const halves = m[3] === 'h';
   const discs = m[4] === 'd';
-  const receiptBox = m[5] === 'r';
+  const receiptBox = m[5] === 'R' ? 2 : m[5] === 'r';
   const minFields = 1 + 7 + (two ? 1 : 0) + 1 + (paired ? 2 : 0) + 2;
   if (f.length < minFields) return null;
   let i = 1;
@@ -206,7 +206,7 @@ export function decodePayload(raw: string): DecodedHalf | null {
   const spec: CardSpec = { v: 1, id, year, month, rateMinor, advMinor, currency, worker, employer, lang, carryMinor };
   if (halves) spec.halves = true;
   if (discs) spec.discs = true;
-  if (receiptBox) spec.receiptBox = true;
+  if (receiptBox) spec.receiptBox = receiptBox;
   const out: DecodedHalf = { raw, role, spec, code, codeOk: cardCode(spec) === code, paired };
   if (paired) {
     out.secret = secret;
@@ -216,7 +216,7 @@ export function decodePayload(raw: string): DecodedHalf | null {
 }
 
 /** Is this QR text meant to be a Stock & Foil payload at all? */
-export const looksLikeOurs = (s: string): boolean => /^SF[12]p?h?d?r?\|/.test(s);
+export const looksLikeOurs = (s: string): boolean => /^SF[12]p?h?d?[rR]?\|/.test(s);
 
 /** Money formatting: integer minor units only. */
 export function formatMoney(minor: number, currency: string): string {

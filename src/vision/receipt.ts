@@ -44,9 +44,9 @@ const pctl = (v: number[], p: number) => { const s = [...v].sort((a, b) => a - b
  * coherent flow; signature = thin long strokes under 20%; smudge = solid without texture; unclear on glare
  * (> 250 in > 15%), a finger or the box out of the photo, blur, or flooded ink (> 70%).
  */
-export function readReceipt(g: Gray, H: Hom, opts: { blurry?: boolean } = {}): ReceiptRead {
+export function readReceipt(g: Gray, H: Hom, opts: { blurry?: boolean; area?: { x0: number; x1: number; y0: number; y1: number } } = {}): ReceiptRead {
   const k = RT.pxPerMm;
-  const { x0, x1, y0, y1 } = RECEIPT_AREA;
+  const { x0, x1, y0, y1 } = opts.area ?? RECEIPT_AREA;
   const W = Math.round((x1 - x0) * k), Hh = Math.round((y1 - y0) * k);
   const at = (x: number, y: number) => { const [u, v] = applyH(H, x, y); return sample(g, u, v); };
   const raw = new Float32Array(W * Hh);

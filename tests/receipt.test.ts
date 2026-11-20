@@ -2,7 +2,7 @@
 // rules, no interference with punches/corners/QR/edge, and the payday flows (pure parts).
 import { describe, expect, it } from 'vitest';
 import { makeCard, encodePayload, decodePayload, cardCode, formatCode, type CardSpec } from '../src/core/card';
-import { RECEIVED_BOX, RECEIPT_AREA, INFO_BOX, FIDUCIALS, FID_SIZE, QR_BOX, GRID, ADV, FRAME_H, FRAME_W, THUMB_GUIDE } from '../src/core/layout';
+import { RECEIVED_BOX, RECEIVED_BOX_V1, panelFor, RECEIPT_AREA, INFO_BOX, FIDUCIALS, FID_SIZE, QR_BOX, GRID, ADV, FRAME_H, FRAME_W, THUMB_GUIDE } from '../src/core/layout';
 import { PANEL_TEXT, infoBoxSvg, receivedBoxSvg, textWidth, RECEIPT_GUIDE } from '../src/render/sheet';
 import { scanImage } from '../src/vision/detect';
 import { verifyPair } from '../src/vision/pair';
@@ -36,6 +36,22 @@ describe('received-mark: the printed box', () => {
     expect(RECEIPT_AREA.y1 - RECEIPT_AREA.y0).toBeGreaterThanOrEqual(20);
     expect(THUMB_GUIDE.ry * 2).toBeLessThanOrEqual(RECEIPT_AREA.y1 - RECEIPT_AREA.y0);
   });
+  it('the QR, the info box and the RECEIVED box line up in one column', () => {
+    expect(INFO_BOX.x).toBe(QR_BOX.x); expect(RECEIVED_BOX.x).toBe(QR_BOX.x);
+    expect(INFO_BOX.x + INFO_BOX.w).toBe(QR_BOX.x + QR_BOX.size); expect(RECEIVED_BOX.x + RECEIVED_BOX.w).toBe(QR_BOX.x + QR_BOX.size);
+  });
+  it('cards printed with the first layout (flag r) keep their own box position; new cards (flag R) use the aligned one', () => {
+    const spec = makeCard({ worker: 'Ravi', employer: 'Mehta', year: 2026, month: 11, pairing: false }, 'K7M2Q9XA');
+    const v1: CardSpec = { ...spec, receiptBox: true };
+    const raw = encodePayload(v1, 'S');
+    expect(raw.split('|')[0]).toMatch(/r$/);
+    const d = decodePayload(raw)!;
+    expect(d.codeOk).toBe(true);
+    expect(d.spec.receiptBox).toBe(true);
+    expect(panelFor(d.spec).box).toEqual(RECEIVED_BOX_V1);
+    expect(panelFor(spec).box).toEqual(RECEIVED_BOX);
+    expect(cardCode(v1)).not.toBe(cardCode(spec));
+  });
   it('the dotted guide is light (≥ 0.85 of paper) so the detector ignores it', () => {
     const v = parseInt(RECEIPT_GUIDE.slice(1, 3), 16) * 0.299 + parseInt(RECEIPT_GUIDE.slice(3, 5), 16) * 0.587 + parseInt(RECEIPT_GUIDE.slice(5, 7), 16) * 0.114;
     expect(v / 255).toBeGreaterThanOrEqual(0.85);
@@ -59,11 +75,11 @@ describe('received-mark: the printed box', () => {
 describe('received-mark: payloads', () => {
   it('new cards carry the RECEIVED box flag, and it round-trips', () => {
     const spec = makeCard({ worker: 'Ramesh', employer: 'Vishnu', year: 2026, month: 11 }, 'K7M2Q9XA');
-    expect(spec.receiptBox).toBe(true);
+    expect(spec.receiptBox).toBe(2);
     const d = decodePayload(encodePayload(spec, 'S'))!;
-    expect(d.spec.receiptBox).toBe(true);
+    expect(d.spec.receiptBox).toBe(2);
     expect(d.codeOk).toBe(true);
-    expect(encodePayload(spec, 'S').split('|')[0]).toMatch(/r$/);
+    expect(encodePayload(spec, 'S').split('|')[0]).toMatch(/R$/);
   });
   it('old cards still decode and say "received mark not available"', () => {
     const old: CardSpec = { ...makeCard({ worker: 'Ravi', employer: 'Mehta', year: 2025, month: 3, pairing: false }, 'K7M2Q9XA') };

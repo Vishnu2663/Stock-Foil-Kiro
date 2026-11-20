@@ -2,7 +2,7 @@
 // simulator: an inked thumb (violet, blue or black), a signature, a smudge, nothing; plus glare and a finger.
 import { renderHalf, type Scene } from '../src/render/scene';
 import { inkFromBitmap, type Bitmap } from '../src/render/rasterSvg';
-import { STOCK_ORIGIN, FOIL_ORIGIN, FRAME_W, FRAME_H, THUMB_GUIDE } from '../src/core/layout';
+import { STOCK_ORIGIN, FOIL_ORIGIN, FRAME_W, FRAME_H, THUMB_GUIDE, RECEIVED_BOX } from '../src/core/layout';
 import { mulberry32 } from '../src/core/prng';
 import type { CardSpec, Role } from '../src/core/card';
 import { jpegLike, glareAt } from './phoneSim';
@@ -12,9 +12,10 @@ export type MarkKind = 'thumb' | 'signature' | 'smudge' | 'empty';
 export const INK: Record<'violet' | 'blue' | 'black', number> = { violet: 0.3, blue: 0.24, black: 0.1 };
 
 /** A mark as a luminance factor (1 = paper) at frame mm. */
-export function markFn(kind: MarkKind, seed: number, inkLum = INK.violet): (x: number, y: number) => number {
+export function markFn(kind: MarkKind, seed: number, inkLum = INK.violet, guide?: { cx: number; cy: number }): (x: number, y: number) => number {
   const r = mulberry32(seed);
-  const cx = THUMB_GUIDE.cx + (r() - 0.5) * 6, cy = THUMB_GUIDE.cy + (r() - 0.5) * 3;
+  const g = guide ?? THUMB_GUIDE;
+  const cx = g.cx + (r() - 0.5) * 6, cy = g.cy + (r() - 0.5) * 3;
   if (kind === 'empty') return () => 1;
   if (kind === 'thumb') {
     const rx = 7 + r() * 1.6, ry = 9 + r() * 1.4, a = (r() - 0.5) * 0.6, per = 0.45 + r() * 0.2, crease = 1.9 + r() * 0.6;
@@ -70,7 +71,7 @@ export function receiptPhoto(spec: CardSpec, bmp: Bitmap, c: ReceiptCase): { img
     {
       seed: c.seed, pxPerMm: c.ppm, rotationDeg: c.rot, tiltXDeg: 3, tiltYDeg: -2, blur: c.blur, noise: 0.01, light: c.light, lightAngleDeg: 30,
       background: 0.12, view: { x0: -6, y0: -6, x1: FRAME_W + 6, y1: FRAME_H + (c.role === 'S' ? 26 : 6) },
-      fingers: c.finger ? [{ x: 166, y: 96, r: 9, lum: 0.55 }] : undefined,
+      fingers: c.finger ? [{ x: RECEIVED_BOX.x + RECEIVED_BOX.w - 6, y: 96, r: 9, lum: 0.55 }] : undefined, // across the box's right edge
     },
   );
   let img: RGBAImage = { width: scene.width, height: scene.height, data: scene.data };

@@ -110,11 +110,23 @@ export function dayNumberPos(cell: { x: number; y: number; w: number }, halves: 
 
 // ---------------- right panel: one info box and the RECEIVED box (thumb mark at payday) ----------------
 
-/** One box for the card number, the rate and the paired tag (frame mm). */
-export const INFO_BOX = { x: 134, y: 55, w: 44, h: 14 };
+/** The right panel lines up under the QR (x 140–178): one info box, then the RECEIVED box. */
+export const INFO_BOX = { x: 140, y: 55, w: 38, h: 14 };
 /** The RECEIVED box: double-ruled frame; the worker presses an inked thumb in it on both halves when paid. */
-export const RECEIVED_BOX = { x: 134, y: 72, w: 38, h: 34 };
+export const RECEIVED_BOX = { x: 140, y: 72, w: 38, h: 34 };
+/** The first printed layout (payload flag 'r'): the boxes started 6 mm further left. Cards printed then still read. */
+export const INFO_BOX_V1 = { x: 134, y: 55, w: 44, h: 14 };
+export const RECEIVED_BOX_V1 = { x: 134, y: 72, w: 38, h: 34 };
+type Box = { x: number; y: number; w: number; h: number };
 /** The plain inner area the detector reads: 2 mm in from the frame, between the label band and the caption band. */
-export const RECEIPT_AREA = { x0: RECEIVED_BOX.x + 2, x1: RECEIVED_BOX.x + RECEIVED_BOX.w - 2, y0: RECEIVED_BOX.y + 6.5, y1: RECEIVED_BOX.y + RECEIVED_BOX.h - 4.5 };
+export const areaOf = (b: Box) => ({ x0: b.x + 2, x1: b.x + b.w - 2, y0: b.y + 6.5, y1: b.y + b.h - 4.5 });
 /** The faint dotted thumb guide inside the area (centre and radii, mm). */
-export const THUMB_GUIDE = { cx: (RECEIPT_AREA.x0 + RECEIPT_AREA.x1) / 2, cy: (RECEIPT_AREA.y0 + RECEIPT_AREA.y1) / 2, rx: 7.5, ry: 9.5 };
+export const guideOf = (b: Box) => { const a = areaOf(b); return { cx: (a.x0 + a.x1) / 2, cy: (a.y0 + a.y1) / 2, rx: 7.5, ry: 9.5 }; };
+export const RECEIPT_AREA = areaOf(RECEIVED_BOX);
+export const THUMB_GUIDE = guideOf(RECEIVED_BOX);
+/** Which right-panel layout a card was printed with: true = the first layout, 2 (and anything else) = aligned. */
+export function panelFor(spec: { receiptBox?: boolean | 2 }) {
+  const v1 = spec.receiptBox === true;
+  const box = v1 ? RECEIVED_BOX_V1 : RECEIVED_BOX;
+  return { info: v1 ? INFO_BOX_V1 : INFO_BOX, box, area: areaOf(box), guide: guideOf(box) };
+}
