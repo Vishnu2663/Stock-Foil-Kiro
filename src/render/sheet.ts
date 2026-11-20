@@ -116,7 +116,9 @@ export function infoBoxSvg(spec: CardSpec, code: string, lang: string): string {
   const out: string[] = [box(x, y, w, h)];
   const tag = spec.pairing ? L.paired : '';
   const tagW = tag ? textWidth(tag, 2.1) + 2 : 0;
-  out.push(fitText(x + 2, y + 6, `№ ${code}`, 3.6, w - 4 - tagW, `font-weight="700" letter-spacing="0.2" fill="${C.ink}"`));
+  // the № sign is drawn on its own at a larger size (in most fonts it is small next to the digits)
+  out.push(`<text x="${x + 2}" y="${y + 6.3}" font-size="5" font-weight="700" fill="${C.ink}">№</text>`);
+  out.push(fitText(x + 7.4, y + 6, code, 3.6, w - 9.4 - tagW, `font-weight="700" letter-spacing="0.2" fill="${C.ink}"`));
   if (tag) out.push(`<text x="${x + w - 1.8}" y="${y + 5.2}" font-size="2.1" font-weight="700" text-anchor="end" fill="${C.green}">${esc(tag)}</text>`);
   out.push(fitText(x + 2, y + 11, `${money(spec.rateMinor)}${L.day} · ${L.adv} ${money(spec.advMinor)}`, 2.2, w - 4, `fill="${C.soft}"`));
   return out.join('');
