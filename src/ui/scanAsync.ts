@@ -3,7 +3,7 @@ import type { ScanOptions, ScanResult } from '../vision/detect';
 import type { RGBAImage } from '../vision/image';
 import type { PairInput } from '../render/scene';
 import type { Bitmap } from '../render/rasterSvg';
-import type { WorkerRequest, WorkerResponse, SimOutput } from '../vision/worker';
+import type { WorkerRequest, WorkerResponse, SimOutput, FrameInfo } from '../vision/worker';
 
 type Pending = { resolve: (r: WorkerResponse) => void; reject: (e: Error) => void };
 
@@ -42,7 +42,8 @@ async function call(req: Req): Promise<WorkerResponse> {
     // Fallback: run on the main thread.
     const det = await import('../vision/detect');
     const id = ++seq;
-    if (req.kind === 'scan') return { id, ok: true, results: req.images.map((i) => det.scanImage(i, req.opts)) };
+    if (req.kind === 'scan') return { id, ok: true, results: req.images.map((i) => (req.opts?.live ? det.scanLive(i, req.opts) : det.scanImage(i, req.opts))) };
+    if (req.kind === 'scanBitmap') throw new Error('no worker');
     const sc = await import('../render/scene');
     const p = sc.renderPair(req.input);
     const stock = { width: p.stock.width, height: p.stock.height, data: p.stock.data };
@@ -52,7 +53,9 @@ async function call(req: Req): Promise<WorkerResponse> {
   const id = ++seq;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    w.postMessage({ ...req, id } as WorkerRequest);
+    // an ImageBitmap is transferred, not copied
+    const transfer = req.kind === 'scanBitmap' ? [req.bitmap] : [];
+    w.postMessage({ ...req, id } as WorkerRequest, transfer);
   });
 }
 
@@ -63,7 +66,36 @@ export const isBusy = () => busy;
 async function scanHere(images: RGBAImage[], opts?: ScanOptions): Promise<ScanResult[]> {
   await new Promise((r) => setTimeout(r, 30));
   const det = await import('../vision/detect');
-  return images.map((i) => det.scanImage(i, opts));
+  return images.map((i) => (opts?.live ? det.scanLive(i, opts) : det.scanImage(i, opts)));
+}
+
+/** Can a live frame go to the worker as an ImageBitmap (no pixels on the main thread)? */
+let bitmapOk: boolean | null = null;
+export const canScanBitmap = () => (bitmapOk ??= typeof createImageBitmap === 'function' && typeof OffscreenCanvas !== 'undefined' && !!getWorker());
+/** Stop using the ImageBitmap path (the worker could not use it); the caller falls back to pixels. */
+export const disableBitmap = () => { bitmapOk = false; };
+
+/**
+ * One live camera frame through the worker: createImageBitmap on the main thread (fast, no pixel copy), then the
+ * worker draws, checks blur, locates and scans it. null when this path is not available or failed (use scanImages).
+ */
+export async function scanVideoFrame(video: HTMLVideoElement, maxDim: number, opts: ScanOptions, blurMin?: number):
+  Promise<{ result?: ScanResult; frame: FrameInfo; grab: number; total: number } | null> {
+  if (!canScanBitmap()) return null;
+  busy = true;
+  try {
+    const t0 = performance.now();
+    const bitmap = await createImageBitmap(video);
+    const grab = performance.now() - t0;
+    const r = await call({ kind: 'scanBitmap', bitmap, maxDim, opts, blurMin });
+    if (!r.ok || !r.frame) { disableBitmap(); return null; }
+    return { result: r.results?.[0], frame: r.frame, grab, total: performance.now() - t0 };
+  } catch {
+    disableBitmap();
+    return null;
+  } finally {
+    busy = false;
+  }
 }
 export async function scanImages(images: RGBAImage[], opts?: ScanOptions): Promise<ScanResult[]> {
   busy = true;

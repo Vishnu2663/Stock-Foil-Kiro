@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Avatar } from './Party';
-import { scanImages } from '../scanAsync';
+import { scanImages, scanVideoFrame } from '../scanAsync';
 import { videoFrame } from '../imageIO';
 import type { HalfScan } from '../../vision/detect';
-import { captureBlocker, debugLine, readingSummary, drawablePose, POSE_MAX_AGE, POSE_MAX_AGE_TABLE, joinBlocker, joinGap, edgeBlocker, type Blocker } from '../../vision/capture';
+import { captureBlocker, debugLine, readingSummary, drawablePose, POSE_MAX_AGE, POSE_MAX_AGE_TABLE, joinBlocker, joinGap, edgeBlocker, timingLine, type Blocker, type FrameTimes } from '../../vision/capture';
 import { medianEdges, EDGE_XS } from '../../vision/detect';
 import { makeWave } from '../../core/wave';
 import { panelFor } from '../../core/layout';
@@ -17,21 +17,24 @@ import { payFor } from '../../core/wages';
 import { useApp } from '../ctx';
 import { prompt, langInfo, type PromptKey } from '../../i18n/index';
 import { speak } from '../../ai/speech';
-import { createScope, kaChunk, motionEnv, type Scope } from '../anim';
+import { createScope, kaChunk, motionEnv, primeAudio, type Scope } from '../anim';
 import { warpThumb, wavePaths, THUMB } from '../thumb';
 import { Odometer } from './Motion';
 import { Icon } from './Icon';
-import { sharpness, BLUR_MIN, fillRatio, FILL_MIN, isFastMotion, readKey, voteReads, LIVE } from '../../vision/quality';
+import { sharpness, BLUR_MIN, fillRatio, FILL_MIN, isFastMotion, readKey, voteReads, LIVE, streakNeeded } from '../../vision/quality';
+import { newTrack, updateTrack, hintOf, type TrackState } from '../../vision/track';
+import { T } from '../../vision/detect';
 
 /** The RECEIVED box as a 96 px wide, blurred, low-contrast JPEG (evidence only; never a sharp print). */
-function markPicture(img: { width: number; height: number; data: Uint8ClampedArray }, h: HalfScan): string {
+function markPicture(img: { width: number; height: number; data: Uint8ClampedArray }, h: HalfScan, k = 1): string {
   const RB = panelFor(h.decoded.spec).box;
+  const HH = scaleHom(h.pose.H, k);
   const W = 96, H = Math.round((96 * RB.h) / RB.w);
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d')!;
   const out = g.createImageData(W, H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const [u, v] = applyH(h.pose.H, RB.x + ((x + 0.5) / W) * RB.w, RB.y + ((y + 0.5) / H) * RB.h);
+    const [u, v] = applyH(HH, RB.x + ((x + 0.5) / W) * RB.w, RB.y + ((y + 0.5) / H) * RB.h);
     const px = Math.min(img.width - 1, Math.max(0, Math.round(u))), py = Math.min(img.height - 1, Math.max(0, Math.round(v)));
     const i = (py * img.width + px) * 4, o = (y * W + x) * 4;
     for (let k = 0; k < 3; k++) out.data[o + k] = 150 + (img.data[i + k] - 150) * 0.45; // low contrast
@@ -42,6 +45,13 @@ function markPicture(img: { width: number; height: number; data: Uint8ClampedArr
   g.drawImage(c, 0, 0);
   return c.toDataURL('image/jpeg', 0.5);
 }
+
+/** A small frame for the capture snapshot: k = its px per analysed px, scale = the analysed frame's scale. */
+interface Snap { img: { width: number; height: number; data: Uint8ClampedArray }; k: number; scale: number }
+/** Long side of that frame (the thumbnail needs ~1.6 px/mm). */
+const SNAP_PX = 640;
+/** A homography followed by a uniform scale k of the image. */
+const scaleHom = (H: number[], k: number): number[] => (k === 1 ? H : [H[0] * k, H[1] * k, H[2] * k, H[3] * k, H[4] * k, H[5] * k, H[6], H[7], H[8]]);
 
 /** Phones (touch first) use the faster tick and the longer streak. */
 const isPhoneCam = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
@@ -119,6 +129,7 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
   toneRef.current = status.tone;
   const streak = useRef<{ key: string; n: number }>({ key: '', n: 0 });
   const reads = useRef<HalfScan[]>([]); // recent reads of the half in view, for the vote
+  const track = useRef<TrackState>(newTrack()); // where the QR was in the last frames (live search window)
   const moving = useRef(0); // until when (ms) the phone moves too fast
   const focusAt = useRef(0);
   const [lowLight, setLowLight] = useState(false);
@@ -153,6 +164,8 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
 
   // Everything scheduled by this camera dies with it (timers, rAFs, animations, sounds).
   useEffect(() => { const s = createScope(); scope.current = s; return () => s.dispose(); }, []);
+  // the capture sound's audio context is created now, while the camera starts, not on the first capture
+  useEffect(() => { const id = setTimeout(() => primeAudio(appRef.current.settings.sounds), 0); return () => clearTimeout(id); }, []);
 
   const say = useCallback((k: PromptKey, force = false) => {
     const { settings: st, lang } = appRef.current;
@@ -214,7 +227,7 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
     if (a) a.finished.then(() => img.remove(), () => img.remove()); else img.remove();
   }, []);
 
-  const capture = useCallback((h: HalfScan, frame?: { img: { width: number; height: number; data: Uint8ClampedArray }; scale: number }) => {
+  const capture = useCallback((h: HalfScan, snap?: () => Snap | null) => {
     const role = h.decoded.role;
     const { t, settings: st } = appRef.current;
     const sc = scope.current;
@@ -233,13 +246,16 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
     setFlash(msg);
     sc.timeout(() => setFlash((f) => (f === msg ? '' : f)), CAMERA.flash);
     setStatus({ text: msg, tone: 'good' });
-    if (frame) {
+    // the snapshot (decoration only) is made in its own task after this one, from a small frame
+    if (snap) sc.timeout(() => {
       try {
-        const url = warpThumb(frame.img, h.pose.H, role);
+        const sn = snap();
+        if (!sn) return;
+        const url = warpThumb(sn.img, scaleHom(h.pose.H, sn.k), role);
         setShots((s) => ({ ...s, [role]: { role, url, id: h.decoded.spec.id } }));
-        sc.raf(() => flyToSlot(h, url, frame.scale));
+        sc.raf(() => flyToSlot(h, url, sn.scale));
       } catch { /* snapshot is decoration only */ }
-    }
+    }, 0);
     onHalfRef.current(h);
     const other: Role = role === 'S' ? 'F' : 'S';
     if (got.current[other]) { setPill(''); sc.timeout(finish, 500); }
@@ -260,8 +276,9 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
     (async () => {
       const t = appRef.current.t;
       const tries: MediaStreamConstraints[] = [
+        // scanner-speed R11: about 720p at 30 fps for the live picture (≥ 2.5 px/mm at 30 cm), then 1080p, then any
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: false },
         { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
-        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
         { video: { facingMode: 'environment' }, audio: false },
         { video: true, audio: false },
       ];
@@ -357,21 +374,66 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
   const tick = useCallback(async (manual = false) => {
     const v = video.current;
     if (!v || v.readyState < 2 || !v.videoWidth || doneOnce.current) return;
-    const f = videoFrame(v, CAMERA.framePx);
-    if (!f) return;
     const { t, settings: st } = appRef.current;
-    // skip frames taken while the phone moves fast or that are blurred (a 400 px copy is enough to tell)
+    // skip frames taken while the phone moves fast
     if (!manual && performance.now() < moving.current) { setStatus({ text: t('Hold still…'), tone: 'warn' }); return; }
-    if (!manual && sharpness(f.img) < BLUR_MIN) { setStatus({ text: t('Hold still… the picture is blurred.'), tone: 'warn' }); return; }
-    let res;
-    try {
-      [res] = await scanImages([f.img], { calibration: st.calibration, pair: mode === 'join' });
-    } catch {
-      setStatus({ text: t('Could not read that frame, trying again…'), tone: 'warn' });
-      return;
+    // Live mode (scanner-speed): finding and following a single half. Check the cut and "Capture now" keep the full
+    // search. The live path reads the same cells, edge and mark; only its QR search is cheaper.
+    const liveMode = !manual && (mode === 'halves' || mode === 'receipt');
+    const opts = { calibration: st.calibration, pair: mode === 'join', ...(liveMode ? { live: true, hint: hintOf(track.current) } : {}) };
+    const ft: FrameTimes = { grab: 0, blur: 0, transfer: 0 };
+    let res: Awaited<ReturnType<typeof scanImages>>[number] | undefined;
+    let scale = 1;
+    let f: { img: { width: number; height: number; data: Uint8ClampedArray }; scale: number } | null = null;
+    const blurred = (sharp: number) => {
+      setStatus({ text: t('Hold still… the picture is blurred.'), tone: 'warn' });
+      if (st.scannerDebug) setDebug(`blurred (sharpness ${sharp.toFixed(0)} < ${BLUR_MIN}) · ${timingLine(ft)}`);
+    };
+    const viaBitmap = liveMode ? await scanVideoFrame(v, CAMERA.framePx, opts, BLUR_MIN) : null;
+    if (scope.current.disposed) return;
+    if (viaBitmap) {
+      // pixels never touched the main thread: grab = createImageBitmap + the worker's draw, blur = the worker's check
+      ft.grab = viaBitmap.grab + viaBitmap.frame.draw;
+      ft.blur = viaBitmap.frame.blur;
+      ft.transfer = Math.max(0, viaBitmap.total - viaBitmap.grab - viaBitmap.frame.draw - viaBitmap.frame.blur - (viaBitmap.result?.timing?.total ?? 0));
+      scale = viaBitmap.frame.scale;
+      if (viaBitmap.frame.blurred) { blurred(viaBitmap.frame.sharp ?? 0); return; }
+      res = viaBitmap.result;
+    } else {
+      const tGrab = performance.now();
+      f = videoFrame(v, CAMERA.framePx);
+      if (!f) return;
+      ft.grab = performance.now() - tGrab;
+      scale = f.scale;
+      const tBlur = performance.now();
+      const sharp = manual ? Infinity : sharpness(f.img);
+      ft.blur = performance.now() - tBlur;
+      if (sharp < BLUR_MIN) { blurred(sharp); return; }
+      const tScan = performance.now();
+      try {
+        [res] = await scanImages([f.img], opts);
+      } catch {
+        setStatus({ text: t('Could not read that frame, trying again…'), tone: 'warn' });
+        return;
+      }
+      // transfer = the round trip to the worker minus the worker's own time (copying the pixels both ways, queueing)
+      if (res) ft.transfer = Math.max(0, performance.now() - tScan - (res.timing?.total ?? res.ms));
     }
     if (!res || scope.current.disposed) return;
+    // follow only the halves still needed, so a captured half left in view never hides the other one
+    if (liveMode) {
+      const still = (r: Role) => (mode === 'receipt' ? !rcap.current[r] : !got.current[r]);
+      track.current = updateTrack(track.current, res.halves.filter((h) => still(h.decoded.role)).map((h) => h.qr.corners));
+    }
+    // the frame for the capture snapshot and the evidence picture (only grabbed on the main thread when needed)
+    // the capture snapshot and the evidence picture: the frame already read (old path) or a small new one
+    const snapNow = (): Snap | null => {
+      if (f) return { img: f.img, k: 1, scale };
+      const sm = videoFrame(v, SNAP_PX);
+      return sm ? { img: sm.img, k: sm.scale / scale, scale } : null;
+    };
     const now = performance.now();
+    const tl = st.scannerDebug ? ' · ' + timingLine(ft, res.timing) + (viaBitmap ? ` · bitmap (create ${Math.round(viaBitmap.grab)} · draw ${Math.round(viaBitmap.frame.draw)})` : '') : '';
     const need = (r: Role) => !got.current[r];
     const idle = got.current.S ? t('Now show the EMPLOYER half (foil)') : got.current.F ? t('Now show the WORKER half (stock)') : t('Show a half to the camera. Hold it flat in good light, whole half in view.');
     if (!res.halves.length) {
@@ -379,13 +441,13 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
       streak.current = { key: '', n: 0 };
       setLock(0);
       setTally(null);
-      setDebug(st.scannerDebug ? `no QR · ${res.squaresSeen ?? 0} square blobs · ${res.ms} ms` : '');
+      setDebug(st.scannerDebug ? `no QR · ${res.squaresSeen ?? 0} square blobs${tl}` : '');
       if (res.foreign.length) setStatus({ text: t('That QR code is not a Stock & Foil card.'), tone: 'warn' });
       else if ((res.squaresSeen ?? 0) >= 3) setStatus({ text: t('A card is in view but its QR code cannot be read yet: move it closer and hold still.'), tone: 'warn' });
       else { setStatus({ text: mode === 'join' ? t(JOIN_TEXT) : mode === 'edges' ? t('Hold one half close, its wavy edge across the picture, on a dark table.') : mode === 'receipt' ? t('Show each half with its RECEIVED box to the camera.') : idle, tone: '' }); if (mode === 'halves') say(got.current.S ? 'foil' : 'stock'); }
       return;
     }
-    live.current = { halves: res.halves, scale: f.scale, at: now };
+    live.current = { halves: res.halves, scale, at: now };
     if (mode === 'receipt') {
       const h = res.halves[0];
       const { cap, step } = receiptStep(rcap.current, cardId ?? '', { id: h.decoded.spec.id, role: h.decoded.role, read: h.receipt });
@@ -395,7 +457,7 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
       if (!h.decoded.spec.receiptBox) { setStatus({ text: t('This card has no RECEIVED box.'), tone: 'warn' }); return; }
       const who = h.decoded.role === 'S' ? t('worker half') : t('employer half');
       if (step.kind === 'got') {
-        if (st.keepMarkPic && step.read.status === 'present') { try { saveMarkPic(`${h.decoded.spec.id}:${h.decoded.role}:${new Date().toISOString().slice(0, 10)}`, markPicture(f.img, h)); } catch { /* evidence picture is optional */ } }
+        if (st.keepMarkPic && step.read.status === 'present') { try { saveMarkPic(`${h.decoded.spec.id}:${h.decoded.role}:${new Date().toISOString().slice(0, 10)}`, (() => { const sn = snapNow(); return sn ? markPicture(sn.img, h, sn.k) : ''; })()); } catch { /* evidence picture is optional */ } }
         setShutter((n) => n + 1);
         navigator.vibrate?.(40);
         kaChunk(scope.current, st.sounds);
@@ -409,7 +471,7 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
     }
     if (mode === 'join' || mode === 'edges') {
       const s = res.halves.find((x) => x.decoded.role === 'S'), fo = res.halves.find((x) => x.decoded.role === 'F');
-      setDebug(st.scannerDebug ? res.halves.map(debugLine).join(' ‖ ') : '');
+      setDebug(st.scannerDebug ? res.halves.map(debugLine).join(' ‖ ') + tl : '');
       setEdgeView({ S: s?.edgeCoverage, F: fo?.edgeCoverage });
       const who = (r: Role) => (r === 'S' ? t('worker half') : t('employer half'));
       const why = mode === 'join' ? joinBlocker(s, fo, s && fo ? joinGap(s, fo) : NaN) : edgeBlocker(res.halves[0]);
@@ -457,7 +519,7 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
     const h = res.halves.find((x) => need(x.decoded.role)) ?? res.halves[0];
     const role = h.decoded.role;
     const label = role === 'S' ? t('worker') : t('employer');
-    setDebug(st.scannerDebug ? `${debugLine(h)} · ${res.ms} ms` : '');
+    setDebug(st.scannerDebug ? `${debugLine(h)}${tl}` : '');
     setTally(tallyOf(h));
     if (!need(role)) {
       streak.current = { key: '', n: 0 };
@@ -469,8 +531,8 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
     const prev = reads.current.filter((r) => r.decoded.role === role && r.decoded.spec.id === h.decoded.spec.id);
     reads.current = [...prev, h].slice(-5);
     const voted = voteReads(reads.current);
-    if (manual) { capture(voted, f); return; }
-    focusOn(h, f.img.width, f.img.height);
+    if (manual) { capture(voted, snapNow); return; }
+    focusOn(h, res.width, res.height);
     setLowLight(h.paperRef / 255 < 0.35);
     const why = captureBlocker(h);
     if (why) {
@@ -489,11 +551,13 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
     // a streak counts only while every punch and the card id stay the same; any flip starts again
     const key = readKey(h);
     streak.current = { key, n: streak.current.key === key ? streak.current.n + 1 : 1 };
-    setLock(Math.min(1, streak.current.n / live0.streak) * 0.999);
-    if (autoRef.current && streak.current.n >= live0.streak) { capture(voted, f); return; }
+    // a card read cleanly (no unsure cell, every cell far from its decision line) locks on 2 reads, otherwise 3
+    const needReads = streakNeeded(h, live0.streak, st.calibration.punchRatio ?? T.punch);
+    setLock(Math.min(1, streak.current.n / needReads) * 0.999);
+    if (autoRef.current && streak.current.n >= needReads) { capture(voted, snapNow); return; }
     const s = readingSummary(h);
     const seen = t('days {0} · advances {1}', s.days.length ? s.days.join(',') : t('none'), s.adv.length ? s.adv.join(',') : t('none'));
-    const small = fillRatio(h.outline, f.img.width, f.img.height) < FILL_MIN;
+    const small = fillRatio(h.outline, res.width, res.height) < FILL_MIN;
     const tip = (small ? ' ' + t('Move closer.') : '') + (h.paperRef / 255 < 0.35 ? ' ' + t('More light.') : '') + (h.warnings.includes('edge-hidden') ? ' ' + t('Tip: keep fingers off the wavy edge so it can be checked.') : '');
     setStatus({ text: (autoRef.current ? t('✓ {0} half detected ({1}). Hold still…', label, seen) : t('✓ {0} half detected ({1}). Tap Capture now.', label, seen)) + tip, tone: 'good' });
     if (autoRef.current) say('still');
@@ -501,15 +565,25 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
 
   // The loop: one scan at a time, paused while hidden and for 1.8 s after a capture.
   useEffect(() => {
-    let stop = false, busy = false;
-    const id = setInterval(async () => {
-      if (stop || busy || document.hidden || Date.now() - lastCapture.current < CAMERA.cooldown) return;
-      busy = true;
-      try { await tick(); } finally { busy = false; }
-    }, live0.tick);
+    // scanner-speed R8: start the next scan as soon as the last one ends, on a NEW video frame
+    // (requestVideoFrameCallback where it exists), never two at a time; idle while hidden or after a capture
+    let stop = false;
+    const nextFrame = () => new Promise<void>((done) => {
+      const v = video.current as (HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number }) | null;
+      if (v?.requestVideoFrameCallback && !document.hidden) v.requestVideoFrameCallback(() => done());
+      else setTimeout(done, 60);
+    });
+    (async () => {
+      while (!stop) {
+        if (document.hidden || Date.now() - lastCapture.current < CAMERA.cooldown) { await new Promise((r) => setTimeout(r, 120)); continue; }
+        await nextFrame();
+        if (stop) break;
+        try { await tick(); } catch { /* one bad frame never stops the loop */ }
+      }
+    })();
     const vis = () => { const v = video.current; if (!v) return; if (document.hidden) v.pause(); else v.play().catch(() => undefined); };
     document.addEventListener('visibilitychange', vis);
-    return () => { stop = true; clearInterval(id); document.removeEventListener('visibilitychange', vis); };
+    return () => { stop = true; document.removeEventListener('visibilitychange', vis); };
   }, [tick, live0]);
 
   // ---------------- the HUD (one canvas, redrawn every frame from a smoothed pose) ----------------

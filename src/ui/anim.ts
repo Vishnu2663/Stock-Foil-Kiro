@@ -106,6 +106,16 @@ export function confetti(scope: Scope, x: number, y: number, n: number, env = mo
 // ---------------- the punch-clock "ka-chunk", synthesized ----------------
 
 let ctx: AudioContext | null = null;
+/**
+ * Create the audio context ahead of time (creating it costs ~100 ms on the main thread), so the first capture
+ * sound does not stall the camera. Call while the camera is starting.
+ */
+export function primeAudio(on: boolean) {
+  if (!on || ctx || typeof window === 'undefined') return;
+  const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AC) return;
+  try { ctx = new AC(); } catch { /* audio not allowed */ }
+}
 /** A quiet mechanical punch: a noise click ("ka") then a low thump ("chunk"). Never plays when hidden. */
 export function kaChunk(scope: Scope, on: boolean, env = motionEnv()) {
   if (!on || env.reduced || env.hidden || typeof window === 'undefined') return;
