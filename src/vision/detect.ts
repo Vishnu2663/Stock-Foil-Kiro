@@ -5,7 +5,7 @@ import jsQR from 'jsqr';
 import { decodePayload, looksLikeOurs, type DecodedHalf, type CardSpec, type Role } from '../core/card';
 import { applyH, findAffine, solveHomography, localScale, type Hom, type Pt } from '../core/homography';
 import {
-  FIDUCIALS, FID_SIZE, SAMPLE_R, panelFor, targetsFor, PIECE_X0, PIECE_X1, STOCK_TOP, FOIL_BOTTOM, FRAME_W, FRAME_H, qrCorners,
+  FIDUCIALS, FID_SIZE, SAMPLE_R, panelFor, QR_BOX, targetsFor, PIECE_X0, PIECE_X1, STOCK_TOP, FOIL_BOTTOM, FRAME_W, FRAME_H, qrCorners,
 } from '../core/layout';
 import { readReceipt, minRG, type ReceiptRead } from './receipt';
 import { toGray, grayToRGBA, sample, boxBlur, unsharp, upscale2, median, type Gray, type RGBAImage } from './image';
@@ -80,11 +80,11 @@ function fillQuad(rgba: Uint8ClampedArray, w: number, h: number, quad: Pt[], gro
   }
 }
 
-function runJsQR(g: Gray, scale: number, maxHits: number, level: number): QRHit[] {
+function runJsQR(g: Gray, scale: number, maxHits: number, level: number, inversion: 'attemptBoth' | 'dontInvert' = 'attemptBoth'): QRHit[] {
   const rgba = grayToRGBA(g);
   const hits: QRHit[] = [];
   for (let k = 0; k < maxHits; k++) {
-    const r = jsQR(rgba, g.width, g.height, { inversionAttempts: 'attemptBoth' });
+    const r = jsQR(rgba, g.width, g.height, { inversionAttempts: inversion });
     if (!r || !r.data) break;
     const L = r.location;
     const quad: Pt[] = [L.topLeftCorner, L.topRightCorner, L.bottomRightCorner, L.bottomLeftCorner].map((p) => [p.x, p.y]);
@@ -102,7 +102,7 @@ function runJsQR(g: Gray, scale: number, maxHits: number, level: number): QRHit[
 export const QR_LADDER = 7;
 
 /** A rectangle of a grey image (whole pixels). */
-function cropGray(g: Gray, x0: number, y0: number, x1: number, y1: number): Gray {
+export function cropGray(g: Gray, x0: number, y0: number, x1: number, y1: number): Gray {
   const w = x1 - x0, h = y1 - y0, data = new Float32Array(w * h);
   for (let y = 0; y < h; y++) data.set(g.data.subarray((y0 + y) * g.width + x0, (y0 + y) * g.width + x1), y * w);
   return { width: w, height: h, data };
@@ -172,19 +172,54 @@ export interface SquareBlob { x: number; y: number; area: number; q: number }
  * mean AND below 0.45 (of full scale). Moment tests keep filled squares and drop rings, text and lines:
  * a filled rectangle has area = 12·√det(cov) (ratio 0.85–1.2), and its axes are similar (l1/l2 ≤ 2.2).
  */
-export function detectSquares(g: Gray, maxKeep = 14): SquareBlob[] {
+export function detectSquares(g: Gray, maxKeep = 14, roi?: Roi): SquareBlob[] {
+  // a window covering most of the frame is just the frame (copying it would only cost time)
+  if (roi) { const r = clampRoi(roi, g.width, g.height); if (r.w * r.h > 0.6 * g.width * g.height) roi = undefined; }
+  if (roi) {
+    // the same rule inside a crop: the local-mean radius and the size limits come from the WHOLE frame, so a blob
+    // inside the crop is judged exactly as in a full-frame search; coordinates go back to the whole frame
+    const r = clampRoi(roi, g.width, g.height);
+    const c = cropGray(g, r.x, r.y, r.x + r.w, r.y + r.h);
+    return squaresIn(c, maxKeep, { R: Math.max(24, Math.round(0.05 * Math.max(g.width, g.height))), area: g.width * g.height })
+      .map((b) => ({ ...b, x: b.x + r.x, y: b.y + r.y }));
+  }
+  return squaresIn(g, maxKeep);
+}
+
+/** A rectangle of the frame, px. */
+export interface Roi { x: number; y: number; w: number; h: number }
+export function clampRoi(r: Roi, W: number, H: number): Roi {
+  const x = Math.max(0, Math.floor(r.x)), y = Math.max(0, Math.floor(r.y));
+  return { x, y, w: Math.max(1, Math.min(W, Math.ceil(r.x + r.w)) - x), h: Math.max(1, Math.min(H, Math.ceil(r.y + r.h)) - y) };
+}
+/** Bounding box of points, grown by `grow` of its size on every side. */
+export function roiAround(pts: Pt[], grow: number): Roi {
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const gx = (x1 - x0) * grow, gy = (y1 - y0) * grow;
+  return { x: x0 - gx, y: y0 - gy, w: x1 - x0 + 2 * gx, h: y1 - y0 + 2 * gy };
+}
+
+/** Work buffers of the square search, kept between calls (scanner-speed R12); every one is fully rewritten. */
+const sqBuf = { I: new Float64Array(0), mask: new Uint8Array(0), stack: new Int32Array(0) };
+function squaresIn(g: Gray, maxKeep: number, ref?: { R: number; area: number }): SquareBlob[] {
   const { width: w, height: h, data } = g;
   const W1 = w + 1;
-  const I = new Float64Array(W1 * (h + 1));
+  if (sqBuf.I.length < W1 * (h + 1)) sqBuf.I = new Float64Array(W1 * (h + 1));
+  if (sqBuf.mask.length < w * h) { sqBuf.mask = new Uint8Array(w * h); sqBuf.stack = new Int32Array(w * h); }
+  const I = sqBuf.I;
+  I.fill(0, 0, W1); // row 0 of the integral image
   for (let y = 0; y < h; y++) {
+    I[(y + 1) * W1] = 0; // column 0
     let row = 0;
     for (let x = 0; x < w; x++) {
       row += data[y * w + x];
       I[(y + 1) * W1 + x + 1] = I[y * W1 + x + 1] + row;
     }
   }
-  const R = Math.max(24, Math.round(0.05 * Math.max(w, h)));
-  const mask = new Uint8Array(w * h);
+  const R = ref?.R ?? Math.max(24, Math.round(0.05 * Math.max(w, h)));
+  const mask = sqBuf.mask.subarray(0, w * h);
+  mask.fill(0);
   const abs = 0.45 * 255;
   for (let y = 0; y < h; y++) {
     const y0 = Math.max(0, y - R), y1 = Math.min(h, y + R + 1);
@@ -195,9 +230,10 @@ export function detectSquares(g: Gray, maxKeep = 14): SquareBlob[] {
       if (v < mean * 0.55 && v < abs) mask[y * w + x] = 1;
     }
   }
-  const minA = Math.max(40, 0.00002 * w * h);
-  const maxA = 0.012 * w * h;
-  const stack = new Int32Array(w * h);
+  const A = ref?.area ?? w * h;
+  const minA = Math.max(40, 0.00002 * A);
+  const maxA = 0.012 * A;
+  const stack = sqBuf.stack;
   const out: SquareBlob[] = [];
   for (let start = 0; start < mask.length; start++) {
     if (mask[start] !== 1) continue;
@@ -313,10 +349,10 @@ function insideQuad(q: Pt[], x: number, y: number): boolean {
  * plus the 2 blobs nearest each corner square's QR-predicted position, so many punched holes (round blobs
  * that also pass the square test) can never crowd a real corner square out of the pool.
  */
-export function squareCandidates(g: Gray, qrImg: Pt[], H0: Hom): SquareBlob[] {
+export function squareCandidates(g: Gray, qrImg: Pt[], H0: Hom, roi?: Roi): SquareBlob[] {
   const cx = qrImg.reduce((s, p) => s + p[0], 0) / 4, cy = qrImg.reduce((s, p) => s + p[1], 0) / 4;
   const grown = qrImg.map(([x, y]) => [cx + (x - cx) * 1.15, cy + (y - cy) * 1.15] as Pt);
-  const all = detectSquares(g, Infinity).filter((bl) => !insideQuad(grown, bl.x, bl.y));
+  const all = detectSquares(g, Infinity, roi).filter((bl) => !insideQuad(grown, bl.x, bl.y));
   const pool = new Set(all.slice(0, 14));
   for (const [fx, fy] of FIDUCIALS) {
     const [px, py] = applyH(H0, fx, fy);
@@ -394,7 +430,7 @@ function refineIn(g: Gray, H: Hom, c: Pt, half: number): Pt | null {
  * Pose: first the global corner-square search; if it fails, grow outward from the QR one corner square at a
  * time (nearest first), refitting an affine model until three squares are known and a homography after that.
  */
-export function estimatePose(g: Gray, qr: QRHit): Pose | null {
+export function estimatePose(g: Gray, qr: QRHit, nearCard = false): Pose | null {
   const qc = qrCorners();
   const H0 = solveHomography(qc, qr.corners);
   if (!H0) return null;
@@ -403,7 +439,9 @@ export function estimatePose(g: Gray, qr: QRHit): Pose | null {
   let H = H0;
   let found: (Pt | null)[] = [null, null, null, null];
   let method: Pose['method'] = 'qr';
-  const gp = globalPose(g, qr.corners, squareCandidates(g, qr.corners, H0));
+  // live: look for the corner squares only around the card the QR predicts (the frame grown by 25%)
+  const roi = nearCard ? roiAround(([[-20, -20], [FRAME_W + 20, -20], [FRAME_W + 20, FRAME_H + 20], [-20, FRAME_H + 20]] as Pt[]).map(([x, y]) => applyH(H0, x, y)), 0.25) : undefined;
+  const gp = globalPose(g, qr.corners, squareCandidates(g, qr.corners, H0, roi));
   if (gp) {
     method = 'global';
     H = gp.H;
@@ -748,15 +786,36 @@ export interface HalfScan {
 }
 
 /** squaresSeen: when no QR decodes, how many corner-square-like blobs are in view (a card too small or blurred to read). */
-export interface ScanResult { width: number; height: number; halves: HalfScan[]; foreign: string[]; invalid: string[]; ms: number; squaresSeen?: number }
+export interface ScanResult { width: number; height: number; halves: HalfScan[]; foreign: string[]; invalid: string[]; ms: number; squaresSeen?: number; timing?: StageTimes }
 
-export interface ScanOptions { calibration?: Calibration; maxQrLevel?: number; maxHits?: number; /** both halves are expected in this one picture (join mode) */ pair?: boolean }
+/** Time spent in each stage of one scan, ms (summed over the halves in the picture). */
+export interface StageTimes { gray: number; qr: number; squares: number; pose: number; cells: number; edge: number; receipt: number; total: number }
+const clock = (): number => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+const zeroTimes = (): StageTimes => ({ gray: 0, qr: 0, squares: 0, pose: 0, cells: 0, edge: 0, receipt: 0, total: 0 });
 
-export function scanHalf(g: Gray, qr: QRHit, decoded: DecodedHalf, opts: ScanOptions = {}, inkChannel?: () => Gray): HalfScan | null {
-  const pose = estimatePose(g, qr);
+export interface ScanOptions {
+  calibration?: Calibration; maxQrLevel?: number; maxHits?: number;
+  /** both halves are expected in this one picture (join mode) */
+  pair?: boolean;
+  /** the live camera loop: the fast QR search of scanLive and corner squares searched near the card only */
+  live?: boolean;
+  /** live: where the QR codes were in the last frame (frame px), searched first */
+  hint?: LiveHint;
+  /** live: QR codes the browser's own detector located in this frame (only the box and text; corners come from jsQR) */
+  located?: LocatedQR[];
+}
+export interface LiveHint { qr: Pt[][] }
+export interface LocatedQR { data: string; box: Roi }
+
+export function scanHalf(g: Gray, qr: QRHit, decoded: DecodedHalf, opts: ScanOptions = {}, inkChannel?: () => Gray, tm: StageTimes = zeroTimes()): HalfScan | null {
+  let t = clock();
+  const lap = (k: keyof StageTimes) => { const n = clock(); tm[k] += n - t; t = n; };
+  const pose = estimatePose(g, qr, !!opts.live);
+  lap('pose');
   if (!pose) return null;
   const { spec, role } = decoded;
   const pr = readPunches(g, pose.H, spec, role, opts.calibration);
+  lap('cells');
   const warnings = new Set<WarningCode>(pr.warnings);
   if (pose.fiducialsFound < 4) warnings.add('few-fiducials');
   if (pose.pxPerMm < 2.4) warnings.add('far');
@@ -765,6 +824,7 @@ export function scanHalf(g: Gray, qr: QRHit, decoded: DecodedHalf, opts: ScanOpt
   if (!pr.contrastOk && !(spec.discs && decoded.paired)) warnings.add(spec.discs ? 'edge-surface' : 'dark-surface');
   const { edge, coverage } = traceEdge(g, pose.H, role, pr.paperRef, pr.bgRef, pr.contrastOk);
   if (pr.contrastOk && coverage < 0.5) warnings.add('edge-hidden');
+  lap('edge');
   const y0 = role === 'S' ? STOCK_TOP : -12;
   const y1 = role === 'S' ? 132 : FOIL_BOTTOM;
   const piece = ([[PIECE_X0, y0], [PIECE_X1, y0], [PIECE_X1, y1], [PIECE_X0, y1]] as Pt[]).map(([x, y]) => applyH(pose.H, x, y));
@@ -774,7 +834,9 @@ export function scanHalf(g: Gray, qr: QRHit, decoded: DecodedHalf, opts: ScanOpt
   const side: number[] = [];
   for (const y of [20, 50, 80, 110]) for (const x of [PIECE_X0 - 6, PIECE_X1 + 6]) side.push(discMean(g, pose.H, x, y, 1, 0.5));
   const sideRef = median(side.filter(Number.isFinite));
+  lap('cells'); // outline and table reference belong to the cell stage
   const receipt = spec.receiptBox ? readReceipt(inkChannel ? inkChannel() : g, pose.H, { blurry: warnings.has('blurry'), area: panelFor(spec).area }) : undefined;
+  lap('receipt');
   return {
     ...(receipt ? { receipt } : {}),
     decoded, qr, pose, cells: pr.cells, edge, edgeCoverage: coverage, paperRef: pr.paperRef, bgRef: pr.bgRef, sideRef,
@@ -782,8 +844,33 @@ export function scanHalf(g: Gray, qr: QRHit, decoded: DecodedHalf, opts: ScanOpt
   };
 }
 
-export function scanGray(g: Gray, opts: ScanOptions = {}, inkChannel?: () => Gray): Omit<ScanResult, 'ms'> {
+/**
+ * The partner half in a pair picture: it lies beyond this half's cut with a gap of up to 40 mm. First the window
+ * where its QR must be (the QR box ± 10 mm, over every gap), then the partner's whole area. Frame mm of this half.
+ * In a pair picture the foil frame starts 144 mm + the gap below the stock frame.
+ */
+function otherHalfHit(g: Gray, h: HalfScan, maxLevel: number): QRHit | null {
+  const stock = h.decoded.role === 'S';
+  const off0 = stock ? 144 : -144 - 40, off1 = stock ? 144 + 40 : -144; // where the partner frame's y = 0 can be
+  const qx0 = QR_BOX.x - 10, qx1 = QR_BOX.x + QR_BOX.size + 10;
+  const windows: [number, number, number, number][] = [
+    [qx0, off0 + QR_BOX.y - 10, qx1, off1 + QR_BOX.y + QR_BOX.size + 10],
+    [-20, off0 - 12, FRAME_W + 20, off1 + FRAME_H + 12],
+  ];
+  for (const [x0, y0, x1, y1] of windows) {
+    const pts = ([[x0, y0], [x1, y0], [x1, y1], [x0, y1]] as Pt[]).map(([x, y]) => applyH(h.pose.H, x, y));
+    const r = clampRoi(roiAround(pts, 0.05), g.width, g.height);
+    if (r.w < 40 || r.h < 40) continue;
+    const hit = findQRs(cropGray(g, r.x, r.y, r.x + r.w, r.y + r.h), 1, maxLevel)[0];
+    if (hit) return { ...hit, corners: hit.corners.map(([x, y]) => [x + r.x, y + r.y] as Pt) };
+  }
+  return null;
+}
+
+export function scanGray(g: Gray, opts: ScanOptions = {}, inkChannel?: () => Gray, tm: StageTimes = zeroTimes()): Omit<ScanResult, 'ms'> {
+  let t = clock();
   const hits = findQRs(g, opts.maxHits ?? 2, opts.maxQrLevel ?? QR_LADDER - 1, !!opts.pair);
+  tm.qr += clock() - t;
   const halves: HalfScan[] = [];
   const foreign: string[] = [];
   const invalid: string[] = [];
@@ -791,18 +878,36 @@ export function scanGray(g: Gray, opts: ScanOptions = {}, inkChannel?: () => Gra
     if (!looksLikeOurs(h.data)) { foreign.push(h.data); continue; }
     const dec = decodePayload(h.data);
     if (!dec) { invalid.push(h.data); continue; }
-    const half = scanHalf(g, h, dec, opts, inkChannel);
+    const half = scanHalf(g, h, dec, opts, inkChannel, tm);
     if (half) halves.push(half);
   }
+  // "Check the cut": one half found, the other not. It lies just beyond the found half's wavy edge (a 1–3 cm gap),
+  // so that region is read on its own (a QR in a corner of a small, blurred picture is easier to read alone)
+  if (opts.pair && halves.length === 1) {
+    t = clock();
+    const other = otherHalfHit(g, halves[0], opts.maxQrLevel ?? QR_LADDER - 1);
+    tm.qr += clock() - t;
+    if (other && looksLikeOurs(other.data)) {
+      const dec = decodePayload(other.data);
+      if (dec && dec.role !== halves[0].decoded.role) { const half = scanHalf(g, other, dec, opts, inkChannel, tm); if (half) halves.push(half); }
+    }
+  }
+  t = clock();
   const squaresSeen = hits.length ? undefined : detectSquares(g).length;
-  return { width: g.width, height: g.height, halves, foreign, invalid, ...(squaresSeen !== undefined ? { squaresSeen } : {}) };
+  tm.squares += clock() - t;
+  return { width: g.width, height: g.height, halves, foreign, invalid, ...(squaresSeen !== undefined ? { squaresSeen } : {}), timing: tm };
 }
 
 export function scanImage(img: RGBAImage, opts: ScanOptions = {}): ScanResult {
-  const t0 = Date.now();
+  const t0 = clock();
+  const tm = zeroTimes();
   let rg: Gray | undefined;
-  const r = scanGray(toGray(img), opts, () => (rg ??= minRG(img)));
-  return { ...r, ms: Date.now() - t0 };
+  const g = toGray(img);
+  tm.gray = clock() - t0;
+  // the ink channel is made only when a RECEIVED box is read; its time counts in the receipt stage
+  const r = scanGray(g, opts, () => (rg ??= minRG(img)), tm);
+  tm.total = clock() - t0;
+  return { ...r, ms: Math.round(tm.total), timing: tm };
 }
 
 /** Punched set and unsure set of a half (for comparisons). */
@@ -821,4 +926,128 @@ export function punchSets(h: HalfScan, overrides?: Record<string, boolean>): { p
     if (c.unsure) unsure.add(c.key);
   }
   return { punched, unsure, manual };
+}
+
+// ---------------- the live camera path (scanner-speed) ----------------
+// Same readers as scanImage (pose refinement, cells, edge, received mark all on the full-resolution frame); only the
+// QR search is cheaper. The QR is decoded on EVERY live frame, so the card id and role are never assumed.
+
+const pool = new Map<string, Float32Array>();
+/** A reused Float32Array per purpose and size (one live scan at a time). */
+function pooled(key: string, n: number): Float32Array {
+  const k = key + n;
+  let a = pool.get(k);
+  if (!a) { if (pool.size > 8) pool.clear(); a = new Float32Array(n); pool.set(k, a); }
+  return a;
+}
+function grayInto(img: RGBAImage, out: Float32Array): Gray {
+  const d = img.data, n = img.width * img.height;
+  for (let i = 0; i < n; i++) out[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  return { width: img.width, height: img.height, data: out };
+}
+function minRGInto(img: RGBAImage, out: Float32Array): Gray {
+  const d = img.data, n = img.width * img.height;
+  for (let i = 0; i < n; i++) { const r = d[i * 4], g = d[i * 4 + 1]; out[i] = r < g ? r : g; }
+  return { width: img.width, height: img.height, data: out };
+}
+/** Area-average a grey image down to a long side of maxDim (no change when it is already that small). */
+export function shrinkGray(g: Gray, maxDim: number): { g: Gray; s: number } {
+  const s = Math.max(g.width, g.height) / maxDim;
+  if (s <= 1) return { g, s: 1 };
+  const w = Math.round(g.width / s), h = Math.round(g.height / s);
+  const out = pooled('shrink', w * h);
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.floor(y * s), y1 = Math.min(g.height, Math.max(y0 + 1, Math.floor((y + 1) * s)));
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.floor(x * s), x1 = Math.min(g.width, Math.max(x0 + 1, Math.floor((x + 1) * s)));
+      let sum = 0;
+      for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) sum += g.data[yy * g.width + xx];
+      out[y * w + x] = sum / ((y1 - y0) * (x1 - x0));
+    }
+  }
+  return { g: { width: w, height: h, data: out }, s };
+}
+
+/** The size of the small copy the live loop searches first. */
+export const LIVE_FIND_PX = 800;
+/** Live QR ladder (R6): raw → blur 1 → unsharp, at 1×, normal (not inverted) only. */
+const LIVE_STEPS = [0, 1, 3];
+
+function liveLadder(g: Gray, maxHits: number): QRHit[] {
+  let b1: Gray | undefined;
+  const blur1 = () => (b1 ??= boxBlur(g, 1));
+  const make: Record<number, () => Gray> = { 0: () => g, 1: blur1, 3: () => unsharp(blur1(), 1.5, 3) };
+  for (const lv of LIVE_STEPS) {
+    const hits = runJsQR(make[lv](), 1, maxHits, lv, 'dontInvert');
+    if (hits.length) return hits;
+  }
+  return [];
+}
+
+/**
+ * Exact QR corners at full resolution inside one window (a QR seen in the last frame, a box the browser's detector
+ * found, or a QR found on the small copy). Tries raw, blur 1, then a 2× upscale of the small window.
+ */
+function decodeIn(g: Gray, win: Roi): QRHit | null {
+  const r = clampRoi(win, g.width, g.height);
+  if (r.w < 24 || r.h < 24) return null;
+  const c = cropGray(g, r.x, r.y, r.x + r.w, r.y + r.h);
+  const tries: [() => Gray, number, number][] = [[() => c, 1, 0], [() => boxBlur(c, 1), 1, 1], [() => upscale2(unsharp(boxBlur(c, 1), 1.5, 3)), 2, 4]];
+  for (const [mk, sc, lv] of tries) {
+    const h = runJsQR(mk(), sc, 1, lv, lv === 4 ? 'attemptBoth' : 'dontInvert')[0];
+    if (h) return { ...h, corners: h.corners.map(([x, y]) => [x + r.x, y + r.y] as Pt) };
+  }
+  return null;
+}
+/** A window around a QR quad: its box grown by 60% on every side. */
+const qrWindow = (quad: Pt[]): Roi => roiAround(quad, 0.6);
+
+/** The live QR search: last positions → the browser's boxes → the small copy → the full frame at raw. */
+export function liveQRs(g: Gray, opts: ScanOptions, maxHits = 2, info: { squares?: number } = {}): QRHit[] {
+  const out: QRHit[] = [];
+  const add = (h: QRHit | null) => { if (h && !out.some((o) => o.data === h.data)) out.push(h); };
+  for (const q of opts.hint?.qr ?? []) { if (out.length >= maxHits) break; add(decodeIn(g, qrWindow(q))); }
+  for (const l of opts.located ?? []) { if (out.length >= maxHits) break; add(decodeIn(g, roiAround([[l.box.x, l.box.y], [l.box.x + l.box.w, l.box.y + l.box.h]], 0.35))); }
+  if (out.length) return out;
+  const small = shrinkGray(g, LIVE_FIND_PX);
+  for (const h of liveLadder(small.g, maxHits)) {
+    const full = small.s === 1 ? h : decodeIn(g, qrWindow(h.corners.map(([x, y]) => [x * small.s, y * small.s] as Pt)));
+    add(full);
+  }
+  if (out.length) return out;
+  // nothing on the small copy: when corner-square blobs show that a card is there (too small or too blurred for the
+  // copy), try the full frame once; an empty table skips this
+  info.squares = detectSquares(small.g).length;
+  if (small.s !== 1 && info.squares >= 3) for (const h of runJsQR(g, 1, maxHits, 0, 'dontInvert')) add(h);
+  return out;
+}
+
+/** One live camera frame: the fast QR search, then exactly the same readers as scanImage. */
+export function scanLive(img: RGBAImage, opts: ScanOptions = {}): ScanResult {
+  const t0 = clock();
+  const tm = zeroTimes();
+  const n = img.width * img.height;
+  const g = grayInto(img, pooled('gray', n));
+  tm.gray = clock() - t0;
+  let t = clock();
+  const info: { squares?: number } = {};
+  const hits = liveQRs(g, opts, opts.maxHits ?? 2, info);
+  tm.qr = clock() - t;
+  const o: ScanOptions = { ...opts, live: true };
+  let rg: Gray | undefined;
+  const ink = () => (rg ??= minRGInto(img, pooled('ink', n)));
+  const halves: HalfScan[] = [], foreign: string[] = [], invalid: string[] = [];
+  for (const h of hits) {
+    if (!looksLikeOurs(h.data)) { foreign.push(h.data); continue; }
+    const dec = decodePayload(h.data);
+    if (!dec) { invalid.push(h.data); continue; }
+    const half = scanHalf(g, h, dec, o, ink, tm);
+    if (half) halves.push(half);
+  }
+  t = clock();
+  // when nothing decoded, how many corner-square blobs the small copy showed (counted during the search)
+  const squaresSeen = hits.length ? undefined : info.squares ?? detectSquares(shrinkGray(g, LIVE_FIND_PX).g).length;
+  tm.squares = clock() - t;
+  tm.total = clock() - t0;
+  return { width: g.width, height: g.height, halves, foreign, invalid, ms: Math.round(tm.total), timing: tm, ...(squaresSeen !== undefined ? { squaresSeen } : {}) };
 }

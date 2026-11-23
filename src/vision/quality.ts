@@ -99,3 +99,20 @@ export function voteReads(reads: HalfScan[], window = 5): HalfScan {
 
 /** Streak length needed before auto-capture, and the tick, on phones vs desktops. */
 export const LIVE = { phone: { tick: 300, streak: 3 }, desktop: { tick: 450, streak: 2 } };
+
+/** How far every cell must be from its decision line for the shorter streak (scanner-speed R10). */
+export const CLEAR_MARGIN = 0.08;
+/**
+ * Reads in a row needed before auto-capture: 2 when no cell is unsure and every cell is clearly punched or clearly
+ * blank (normal cards: |ratio − threshold| ≥ 0.08; disc cards: ||ratio − grey| − 0.15| ≥ 0.08); otherwise `base`
+ * (3 on phones). Never fewer than 2, never more than `base`.
+ */
+export function streakNeeded(h: HalfScan, base: number, punchRatio = 0.62, discHole = 0.15): number {
+  if (base <= 2) return base;
+  for (const c of h.cells) {
+    if (c.unsure || !Number.isFinite(c.ratio)) return base;
+    const d = h.decoded.spec.discs && h.grey !== undefined ? Math.abs(Math.abs(c.ratio - h.grey) - discHole) : Math.abs(c.ratio - punchRatio);
+    if (d < CLEAR_MARGIN) return base;
+  }
+  return 2;
+}

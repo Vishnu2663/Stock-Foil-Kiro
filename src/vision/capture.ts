@@ -115,3 +115,18 @@ export function edgeBlocker(h: HalfScan | undefined): JoinBlocker | null {
   if (h.edgeCoverage < JOIN.coverage || h.warnings.includes('edge-hidden')) return { code: 'edge', role: h.decoded.role, coverage: h.edgeCoverage };
   return null;
 }
+
+// ---------------- timing (scanner debug line) ----------------
+
+/** Main-thread stages measured by the camera, added to the worker's stage times. */
+export interface FrameTimes { grab: number; blur: number; transfer: number }
+
+/**
+ * "grab 9 · blur 4 · xfer 7 · gray 6 · qr 41 · sq 0 · pose 12 · cells 18 · edge 5 · mark 3 · total 105 ms".
+ * total = main-thread stages + the worker's total. Missing stages show as 0.
+ */
+export function timingLine(f: Partial<FrameTimes>, w?: Partial<import('./detect').StageTimes>): string {
+  const r = (x?: number) => Math.round(x ?? 0);
+  const total = r((f.grab ?? 0) + (f.blur ?? 0) + (f.transfer ?? 0) + (w?.total ?? 0));
+  return `grab ${r(f.grab)} · blur ${r(f.blur)} · xfer ${r(f.transfer)} · gray ${r(w?.gray)} · qr ${r(w?.qr)} · sq ${r(w?.squares)} · pose ${r(w?.pose)} · cells ${r(w?.cells)} · edge ${r(w?.edge)} · mark ${r(w?.receipt)} · total ${total} ms`;
+}
