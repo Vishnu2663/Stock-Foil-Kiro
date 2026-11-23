@@ -78,9 +78,6 @@ The paper card, punch reading and received mark have also been tried on real pri
   smudge / signature rules were tuned on simulated marks.
 - Translations were drafted with AI and need native-speaker review.
 
-## Disclosure
-The concept and an earlier prototype existed before the hackathon; this repository is a ground-up rebuild made with
-Kiro during the Submission Period, and no code was copied.
 
 ## Third-party licences
 Stock & Foil is MIT licensed. Runtime libraries: [jsQR](https://github.com/cozmo/jsQR) (Apache-2.0),
