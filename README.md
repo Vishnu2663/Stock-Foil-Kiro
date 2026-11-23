@@ -88,40 +88,42 @@ All cards: worker **Ramesh**, employer **Vishnu Builders**, **₹700 a day**, **
    **Or scan from this page:** tap **Start camera** on your phone and point it at the worker half, then the employer half.
 3. Compare with the expected result. Tap **Start again** before the next set.
 
-### 1 · Genuine pair ✅
+# 🧪 Demo Cards for Testing
+
+## 1 · Genuine pair ✅
 **Expected:** Genuine pair · 22 days on both halves · **₹15,200** (22 × ₹700 − 2 × ₹100)
 
-**Worker half (stock)**
+### 👷 Worker half (stock)
 <a href="demo-cards/1-genuine/stock.jpg?raw=true"><img src="demo-cards/1-genuine/stock.jpg" width="100%" alt="Worker half, set 1"></a>
 
-**Employer half (foil)**
+### 🏗️ Employer half (foil)
 <a href="demo-cards/1-genuine/foil.jpg?raw=true"><img src="demo-cards/1-genuine/foil.jpg" width="100%" alt="Employer half, set 1"></a>
 
-### 2 · Extra hole: dispute ⚠️
+## 2 · Extra hole: dispute ⚠️
 **Expected:** Genuine pair, **disputed**. The worker half has one extra day (day 11); it is flagged and **not paid until both agree**.
 
-**Worker half (stock)**
+### 👷 Worker half (stock)
 <a href="demo-cards/2-extra-hole/stock.jpg?raw=true"><img src="demo-cards/2-extra-hole/stock.jpg" width="100%" alt="Worker half, set 2"></a>
 
-**Employer half (foil)**
+### 🏗️ Employer half (foil)
 <a href="demo-cards/2-extra-hole/foil.jpg?raw=true"><img src="demo-cards/2-extra-hole/foil.jpg" width="100%" alt="Employer half, set 2"></a>
 
-### 3 · Wrong half: forgery ❌
+## 3 · Wrong half: forgery ❌
 **Expected:** **Rejected**. The employer half comes from a different card, so the halves are not a pair.
 
-**Worker half (stock)**
+### 👷 Worker half (stock)
 <a href="demo-cards/3-wrong-half/stock.jpg?raw=true"><img src="demo-cards/3-wrong-half/stock.jpg" width="100%" alt="Worker half, set 3"></a>
 
-**Employer half from another card**
+### 🏗️ Employer half from another card
 <a href="demo-cards/3-wrong-half/foil-from-another-card.jpg?raw=true"><img src="demo-cards/3-wrong-half/foil-from-another-card.jpg" width="100%" alt="Employer half from another card, set 3"></a>
 
-### 4 · Two shifts: half days 🌓
+## 4 · Two shifts: half days 🌓
 **Expected:** Two circles per date: **20 full days + 1 half day = 20½ days**.
 
-**Worker half (stock)**
+### 👷 Worker half (stock)
 <a href="demo-cards/4-two-shifts/stock.jpg?raw=true"><img src="demo-cards/4-two-shifts/stock.jpg" width="100%" alt="Worker half, set 4"></a>
 
-**Employer half (foil)**
+### 🏗️ Employer half (foil)
 <a href="demo-cards/4-two-shifts/foil.jpg?raw=true"><img src="demo-cards/4-two-shifts/foil.jpg" width="100%" alt="Employer half, set 4"></a>
 
 **Want to try the real thing?** Print [`demo-cards/print/blank-card.pdf`](demo-cards/print/blank-card.pdf) at 100% on A4, cut along the wavy line, punch a few days through both halves together, and scan.
