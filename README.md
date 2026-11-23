@@ -76,7 +76,7 @@ Everything Kiro used is in [`.kiro/`](.kiro/): 14 specs (`.kiro/specs/`), steeri
 
 ---
 
-## 🧪 Demo Cards for Testing
+# 🧪 Demo Cards for Testing
 
 Ready-made cards so you can test the real scanner in a minute, no printer or hole punch needed.
 All cards: worker **Ramesh**, employer **Vishnu Builders**, **₹700 a day**, **November 2026**.
@@ -87,8 +87,6 @@ All cards: worker **Ramesh**, employer **Vishnu Builders**, **₹700 a day**, **
 2. **Upload:** right-click each image below → *Save image*, then tap **Choose photos (one or both at once)** and pick both halves of a set.
    **Or scan from this page:** tap **Start camera** on your phone and point it at the worker half, then the employer half.
 3. Compare with the expected result. Tap **Start again** before the next set.
-
-# 🧪 Demo Cards for Testing
 
 ## 1 · Genuine pair ✅
 **Expected:** Genuine pair · 22 days on both halves · **₹15,200** (22 × ₹700 − 2 × ₹100)
