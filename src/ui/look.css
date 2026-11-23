@@ -17,7 +17,8 @@ main .lead, main > .page > .stack > .lead { color: var(--c-muted-2); font-size: 
 a { color: #e2675b; }
 
 /* page entry: fade in from blurred */
-.page { animation: pageIn var(--m-320) var(--ease-emph) both; transform-origin: 50% 0; }
+/* backwards, not both: a filled transform would make every position: fixed child (the phone camera) sit inside the page */
+.page { animation: pageIn var(--m-320) var(--ease-emph) backwards; transform-origin: 50% 0; }
 @keyframes pageIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 .rise > * { animation: riseIn .8s cubic-bezier(.2, .7, .2, 1) both; }
 .rise > *:nth-child(2) { animation-delay: .08s; } .rise > *:nth-child(3) { animation-delay: .16s; }

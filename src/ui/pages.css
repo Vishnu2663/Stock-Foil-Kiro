@@ -277,12 +277,18 @@ main:has(.issue-grid) { max-width: 1320px; }
 .cam-wrap.sized { aspect-ratio: auto; }
 .cam-wrap video { object-fit: contain; }
 @media (max-width: 560px) {
-  .cam-shell .cam-wrap { position: fixed; inset: 0; z-index: 60; border-radius: 0; aspect-ratio: auto !important; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); background: #000; }
-  .cam-shell .cam-tools { top: calc(10px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); }
-  .cam-shell .cam-tray, .cam-shell .cam-bar, .cam-shell .cam-pill { position: relative; z-index: 61; }
-  .cam-shell .cam-bar { position: fixed; left: 0; right: 0; bottom: calc(76px + env(safe-area-inset-bottom)); justify-content: center; }
-  .cam-shell .cam-pill { position: fixed; left: 12px; right: 12px; top: calc(56px + env(safe-area-inset-top)); }
-  .cam-shell .cam-tray { position: fixed; left: 0; right: 0; bottom: calc(8px + env(safe-area-inset-bottom)); }
+  /* full screen camera as one column: the video fills what the progress tray and the controls leave free */
+  .cam-shell { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; gap: 10px; margin: 0; background: #000;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) calc(10px + env(safe-area-inset-bottom)) env(safe-area-inset-left); }
+  .cam-shell .cam-wrap { position: relative; flex: 1 1 auto; min-height: 0; border-radius: 0; aspect-ratio: auto !important; }
+  .cam-shell .cam-tools { top: 10px; right: 10px; }
+  .cam-shell .cam-pill { position: absolute; z-index: 2; left: 12px; right: 12px; top: calc(56px + env(safe-area-inset-top)); }
+  .cam-shell .cam-tray, .cam-shell .cam-bar, .cam-shell .join-stuck { flex: none; position: static; }
+  .cam-shell .cam-tray { gap: 10px; }
+  .cam-shell .cam-tray .slot { width: 76px; height: 50px; }
+  .cam-shell .cam-bar { justify-content: center; }
+  .cam-shell .join-stuck { max-height: 40vh; overflow: auto; margin: 0 10px; }
+  body.cam-open .header, body.cam-open .tabbar, body.cam-open .tabbar.phone-only, body.cam-open .listen-fab { display: none !important; }
 }
 
 /* ---- retro skin: CRT scanlines, vignette, viewfinder ticks, SCANNING ● ---- */
@@ -681,3 +687,7 @@ body.lite .splat { display: none; }
 body.reduced .wage-banner, body.reduced .tok.flash, body.reduced .nlayer.ghost, body.reduced .wp-stamp.paid.slam, body.reduced .slip-out .wp-line, body.reduced .reading-shimmer, body.reduced .toast { animation: none !important; }
 .rv-hero .pay-flow { margin-top: 30px; }
 @media (min-width: 641px) { .rv-hero .rv-stamp-wrap { margin-top: -4px; } }
+/* Payday scan title row: "Scan another" sits top right once a result shows (wraps under the title if it must) */
+.scan-head { margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.scan-head h1 { margin: 0; min-width: 0; }
+.scan-head .scan-head-btn { flex: none; min-height: 44px; white-space: nowrap; }

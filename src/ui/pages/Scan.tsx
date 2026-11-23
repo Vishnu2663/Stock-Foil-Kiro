@@ -350,7 +350,10 @@ export default function Scan() {
 
   return (
     <div className="stack">
-      <h1>Payday scan</h1>
+      <div className="scan-head">
+        <h1>Payday scan</h1>
+        {showResult && <button type="button" className="btn small scan-head-btn" onClick={reset}><Icon name="scan" /> {t('Scan another')}</button>}
+      </div>
       {!showResult && <p className="lead">Photograph each half on a dark table. Keep all four corner squares and the wavy edge in view. You can also drag and drop photos here; they are read automatically.</p>}
 
       {!showResult && (

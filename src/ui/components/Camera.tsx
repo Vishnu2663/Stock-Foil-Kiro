@@ -110,6 +110,11 @@ export function Camera({ have, onHalf, onClose, onDone, mode = 'halves', onEdges
   const [error, setError] = useState('');
   const [status, setStatus] = useState<{ text: string; tone: Tone }>({ text: t('Starting the camera…'), tone: '' });
   const [debug, setDebug] = useState('');
+  // On phones the camera is full screen; the header, tab bar and Listen button sit above <main>, so hide them meanwhile.
+  useEffect(() => {
+    document.body.classList.add('cam-open');
+    return () => document.body.classList.remove('cam-open');
+  }, []);
   const [torch, setTorch] = useState<boolean | null>(null);
   const [auto, setAuto] = useState(true);
   const [flash, setFlash] = useState('');
