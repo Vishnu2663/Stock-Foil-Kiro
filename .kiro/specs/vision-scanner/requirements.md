@@ -70,3 +70,9 @@ Reference: docs/BUILD_BRIEF.md §4 Phase 5, §6.5.
 5. Hole centre: flood fill inside a 6 mm disc below paper × 0.4, date-number box masked, seed within 2.2 mm, area ≥ 4 mm².
 6. Cut edge: x = 4…182 mm, step 0.15–0.35 mm, a crossing counts only when it stays dark 1.2 mm further; skipped when
    background ≥ 0.72 × paper; warning "Keep fingers off the wavy edge so it can be checked." below 50% coverage.
+
+## R9 Live camera path (see .kiro/specs/scanner-speed)
+1. `scanLive` SHALL read exactly what `scanImage` reads (same readers on the full-resolution frame); only its QR search
+   is cheaper: a window around the last QR position (tracker), boxes located by BarcodeDetector, an 800 px copy, then
+   the full frame when corner squares are seen. Exact QR corners always come from jsQR.
+2. Photo import, "Capture now" and Check the cut SHALL keep the full search.

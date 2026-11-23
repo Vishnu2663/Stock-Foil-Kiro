@@ -1,6 +1,6 @@
 // One simulated phone frame of the real printed sheet, and how the scanner did on it. Shared by the phone tests.
 import fc from 'fast-check';
-import { scanImage, T } from '../src/vision/detect';
+import { scanImage, scanLive, T, type ScanResult } from '../src/vision/detect';
 import { sharpness, BLUR_MIN } from '../src/vision/quality';
 import { renderHalf } from '../src/render/scene';
 import { inkFromBitmap, type Bitmap } from '../src/render/rasterSvg';
@@ -59,14 +59,20 @@ export function phoneFrame(spec: CardSpec, bmp: Bitmap, c: PhoneCase): { img: RG
   return { img, glareKey };
 }
 
-/** Run one case. `glareCheck: false` reads like the scanner did before the glare rule (for the before/after numbers). */
-export function runPhoneCase(spec: CardSpec, bmp: Bitmap, c: PhoneCase, glareCheck = true): PhoneOutcome {
+/** Run one case. `glareCheck: false` reads like the scanner did before the glare rule (for the before/after numbers).
+ *  `path`: 'full' (photo import, Capture now), 'live' (live camera, first find) or 'tracked' (live, QR seen last frame). */
+export function runPhoneCase(spec: CardSpec, bmp: Bitmap, c: PhoneCase, glareCheck = true, path: 'full' | 'live' | 'tracked' = 'full'): PhoneOutcome {
   const { img, glareKey } = phoneFrame(spec, bmp, c);
+  const scan = (): ScanResult => {
+    if (path === 'full') return scanImage(img);
+    const first = scanLive(img);
+    return path === 'live' || !first.halves.length ? first : scanLive(img, { hint: { qr: first.halves.map((h) => h.qr.corners) } });
+  };
   const sharp = sharpness(img);
   const keep = T.glareShare;
   if (!glareCheck) (T as { glareShare: number }).glareShare = 2;
   let res;
-  try { res = scanImage(img); } finally { (T as { glareShare: number }).glareShare = keep; }
+  try { res = scan(); } finally { (T as { glareShare: number }).glareShare = keep; }
   const h = res.halves.find((x) => x.decoded.role === c.role);
   if (!h) return { read: false, skippedBlur: sharp < BLUR_MIN, wrongSure: [], unsure: [], glareKey, glareOk: true, sharp };
   const truth = new Set(c.punched);
@@ -78,11 +84,11 @@ export function runPhoneCase(spec: CardSpec, bmp: Bitmap, c: PhoneCase, glareChe
 }
 
 /** 50 property runs of simulated phone frames (one shard; four shards make the 200 runs and run in parallel). */
-export function phoneShard(seed: number, numRuns = 50): { reads: number; frames: number; wrong: number; glareCases: number; beforeWrong: number } {
+export function phoneShard(seed: number, numRuns = 50): { reads: number; frames: number; wrong: number; glareCases: number; beforeWrong: number; liveReads: number; liveWrong: number } {
   const spec = phoneSpec();
   const bmp = phoneBmp();
   const before = typeof process !== 'undefined' && process.env.PHONE_BEFORE === '1';
-  const stats = { reads: 0, frames: 0, wrong: 0, glareCases: 0, beforeWrong: 0 };
+  const stats = { reads: 0, frames: 0, wrong: 0, glareCases: 0, beforeWrong: 0, liveReads: 0, liveWrong: 0 };
   fc.assert(fc.property(phoneCaseArb(spec), (c) => {
     const o = runPhoneCase(spec, bmp, c);
     stats.frames++;
@@ -95,6 +101,13 @@ export function phoneShard(seed: number, numRuns = 50): { reads: number; frames:
     if (!o.glareOk) throw new Error(`glare on ${o.glareKey} not unsure`);
     // a frame that reads is never thrown away as blurred
     if (o.read && o.skippedBlur) throw new Error(`readable frame skipped as blurred (sharpness ${o.sharp.toFixed(1)})`);
+    // the live camera path: never a wrong-and-sure spot, glare still unsure (first find and tracked)
+    for (const path of ['live', 'tracked'] as const) {
+      const l = runPhoneCase(spec, bmp, c, true, path);
+      if (path === 'live' && l.read) stats.liveReads++;
+      if (l.wrongSure.length) { stats.liveWrong++; throw new Error(`${path} path: wrong and sure: ${l.wrongSure.join(',')}`); }
+      if (!l.glareOk) throw new Error(`${path} path: glare on ${l.glareKey} not unsure`);
+    }
   }), { numRuns, seed });
   return stats;
 }

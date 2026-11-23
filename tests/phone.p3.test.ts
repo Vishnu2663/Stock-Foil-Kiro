@@ -10,5 +10,7 @@ describe('phone accuracy (shard 3/4)', () => {
     expect(s.frames).toBe(n);
     expect(s.wrong).toBe(0);
     expect(s.frames - s.reads).toBeLessThanOrEqual(Math.max(1, Math.floor(n * 0.1)));
+    expect(s.liveWrong).toBe(0);
+    expect(s.frames - s.liveReads).toBeLessThanOrEqual(Math.max(1, Math.floor(n * 0.1)));
   });
 });

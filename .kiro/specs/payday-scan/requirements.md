@@ -137,3 +137,10 @@ Reference: docs/BUILD_BRIEF.md §4 Phase 7.
 5. Each half against the card's designed wave (c ≥ 0.85, rms ≤ 1.0 mm) counts as a checked cut; c < 0.6 names the half
    whose cut does not match. edgeMatch() thresholds are unchanged.
 6. After 20 s without a join capture: tips, "Scan each half's wavy edge close up", or keep the result.
+
+## R10 Live speed (see .kiro/specs/scanner-speed)
+1. The camera SHALL scan the next video frame as soon as the last scan ends, sending it to the worker as an ImageBitmap
+   where OffscreenCanvas exists (pixels and the blur check then stay off the main thread).
+2. The camera SHALL follow the QR position between frames (tracker) and SHALL capture after 2 identical reads when every
+   cell is clearly punched or blank (≥ 0.08 from its decision line), otherwise after 3 on phones.
+3. The camera SHALL ask for 1280×720 at 30 fps first, then 1920×1080, then any camera.

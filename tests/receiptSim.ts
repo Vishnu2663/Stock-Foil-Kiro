@@ -82,7 +82,7 @@ export function receiptPhoto(spec: CardSpec, bmp: Bitmap, c: ReceiptCase): { img
 
 // ---------------- property shards ----------------
 import fc from 'fast-check';
-import { scanImage } from '../src/vision/detect';
+import { scanImage, scanLive } from '../src/vision/detect';
 import { recordedCard, sheetWithText } from './cameraPhotos';
 
 export type Truth = 'thumb' | 'signature' | 'smudge' | 'empty' | 'glare' | 'finger';
@@ -93,7 +93,7 @@ export const rBmp = () => (bmpC ??= sheetWithText(rSpec()));
 export function receiptShard(seed: number, numRuns = 50) {
   const spec = rSpec(), bmp = rBmp();
   const st: Record<Truth, { n: number; ok: number }> = { thumb: { n: 0, ok: 0 }, signature: { n: 0, ok: 0 }, smudge: { n: 0, ok: 0 }, empty: { n: 0, ok: 0 }, glare: { n: 0, ok: 0 }, finger: { n: 0, ok: 0 } };
-  let falsePresent = 0;
+  let falsePresent = 0, liveDiff = 0;
   const truthArb = fc.oneof(
     { weight: 8, arbitrary: fc.constant<Truth>('thumb') }, { weight: 3, arbitrary: fc.constant<Truth>('signature') },
     { weight: 4, arbitrary: fc.constant<Truth>('empty') }, { weight: 2, arbitrary: fc.constant<Truth>('smudge') },
@@ -107,6 +107,8 @@ export function receiptShard(seed: number, numRuns = 50) {
     const kind: MarkKind = c.truth === 'glare' ? 'thumb' : c.truth === 'finger' ? 'empty' : c.truth;
     const { img } = receiptPhoto(spec, bmp, { role: c.role, kind, ink: c.ink, seed: c.seed, rot: c.rot, ppm: c.ppm, blur: 1.5, light: c.light, jpeg: true, glare: c.truth === 'glare', finger: c.truth === 'finger' });
     const r = scanImage(img).halves[0]?.receipt;
+    const lr = scanLive(img).halves[0]?.receipt;
+    if (lr && (lr.status !== r?.status || lr.kind !== r?.kind)) { liveDiff++; throw new Error(`live path read the mark as ${lr.status}/${lr.kind}, full path ${r?.status}/${r?.kind}`); }
     st[c.truth].n++;
     const ok = c.truth === 'empty' ? r?.status === 'absent'
       : c.truth === 'glare' || c.truth === 'finger' ? r?.status === 'unclear'
@@ -114,5 +116,5 @@ export function receiptShard(seed: number, numRuns = 50) {
     if (ok) st[c.truth].ok++;
     if (c.truth === 'empty' && r?.status === 'present') { falsePresent++; throw new Error('an empty box read as present'); }
   }), { numRuns, seed });
-  return { ...st, falsePresent };
+  return { ...st, falsePresent, liveDiff };
 }

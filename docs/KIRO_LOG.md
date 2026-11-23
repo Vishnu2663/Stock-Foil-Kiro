@@ -102,3 +102,60 @@ Phase 0 was vibe mode (steering, hooks, agents, scaffold). Phases 1 to 12 are sp
   200 simulated box photos: thumbs 81/82 thumb, 0 false "present" on empty boxes, glare and fingers unclear.
 - Kiro features: three specs updated/added, property tests sharded across files so they run in parallel, five parallel
   translator sub-agents (98 strings × 5 languages). Heavy accuracy tests: 50 runs by default, 200 with ACCURACY=1.
+## 2026-11-21 · scanner-speed · Task 1: baseline
+- New spec `.kiro/specs/scanner-speed/` (R1–R12). Task 1 only measures; nothing that reads a card changed.
+- Built: `ScanResult.timing` (gray, qr, squares, pose, cells, edge, receipt, total), the camera's main-thread stages
+  (grab, blur check, transfer) and `timingLine()` on the scanner debug line; `BENCH=1 npx vitest run tests/scanSpeed.test.ts`.
+- Benchmark frames: a half of the real printed sheet at 4.6–5.4 px/mm inside a 1600×900 frame (today's 1920×1080
+  camera frame downscaled to 1600), ±12° rotation, small tilt, 1.2–1.5 px blur, uneven light, fingers on the margins.
+- Baseline on this Mac (Node; a mid-range phone is several times slower), today's live call `scanImage(img, { calibration })`:
+
+  | stage (ms) | card in view p50 | p95 | no card p50 | p95 |
+  |---|---|---|---|---|
+  | blur check (main thread) | 4.4 | 7.6 | 4.3 | 8.3 |
+  | gray | 3.6 | 3.9 | 3.6 | 3.8 |
+  | QR | **151.6** | 173.6 | **975.9** | 1151.7 |
+  | squares | 0 | 0 | 10.5 | 10.7 |
+  | pose | 16.5 | 17.6 | – | – |
+  | cells | 1.0 | 1.1 | – | – |
+  | edge | 3.0 | 3.9 | – | – |
+  | received mark | 8.5 | 11.3 | – | – |
+  | **total** | **185.1** | 210.3 | **989.7** | 1165.9 |
+
+- Findings:
+  1. QR decoding is 82% of a card frame (152 of 185 ms). Every card frame was read at ladder step 0 (raw), so the
+     cost is jsQR itself at 1600 px with `attemptBoth` (it tries the inverted image too).
+  2. With no card in view the whole 7-step ladder runs: 67 ms (step 0) → 290 ms (steps 0–3) → 957 ms (all 7, with two
+     3200 px upscales). On a phone that is several seconds per empty frame, and the next scan cannot start until it
+     ends: when the card enters the picture, the first read waits for an empty-frame scan to finish. This is the
+     likeliest cause of "several seconds before it locks".
+  3. Estimated time to auto-capture with today's phone loop (300 ms tick, 3 reads) on this Mac: 900 ms, all 8 cards.
+## 2026-11-21 · scanner-speed · Tasks 2–15: the live path
+- Built: `scanLive` (src/vision/detect.ts) with a tracker (src/vision/track.ts), BarcodeDetector as a locator
+  (src/vision/qr.ts), an 800 px find with exact corners from a full-resolution window, a short live ladder (dontInvert),
+  ImageBitmap → worker → OffscreenCanvas with the blur check in the worker, next-video-frame scheduling, the adaptive
+  2-or-3 streak, 720p first, pooled buffers. Check the cut, Capture now and photo import keep the full search.
+- Two plan changes made to protect accuracy (approved): the QR is decoded on every live frame (in a small window when
+  tracked) instead of being skipped; the small copy only finds the QR, its exact corners come from full resolution.
+- Benchmark (BENCH=1, this Mac, 1600×900 frames), total p50 / p95 ms:
+
+  | | before (every live frame) | after: first find | after: tracked |
+  |---|---|---|---|
+  | card in view | 179.9 / 188.4 | 82.4 / 87.5 | **47.2 / 49.3** |
+  | no card | 998.0 / 1015.1 | **49.3 / 51.0** | – |
+  | QR stage, card in view | 149.9 | 49.7 | 13.8 |
+  | estimated time to auto-capture | 900 | 167 (2 clear reads) | |
+
+- Real Chrome, fake camera (2 fps video), phone size: frames go to the worker as ImageBitmaps (createImageBitmap ~1 ms
+  on the main thread, the worker draws in 6–8 ms), about 88 ms per frame steady; no main-thread long task while
+  scanning (the two left are when the camera opens and when the result appears). Without OffscreenCanvas,
+  BarcodeDetector and requestVideoFrameCallback it falls back to the pixel path and still captures, no errors.
+- Main-thread fixes found by profiling: creating the AudioContext on the first capture sound cost ~100 ms (now created
+  when the camera opens); the capture snapshot now uses a 640 px frame in its own task.
+- Accuracy (npm run test:accuracy, 200 runs each): cut check 200/200 real pairs, 0/62 forged foils; phone frames 0/200
+  wrong on the full path and 0/200 wrong on the live path (199 read); received mark identical on both paths (thumbs
+  81/82, empty 44/44, glare 18/18, fingers 8/8, smudges 22/22, signatures 26/26, 0 false "present").
+- Found on the way: after the card layout change (ad7424c) one cut-check scene (3.1 px/mm, 1.8 px blur) no longer read
+  the foil QR (199/200, the same on the old commit). The partner half is now searched where its QR must be, beyond the
+  cut. Back to 200/200.
+- Tests: 177 passing (14 new in tests/scanLive.test.ts and tests/scanTiming.test.ts, plus the benchmark, skipped unless BENCH=1), npm test 110 s.
