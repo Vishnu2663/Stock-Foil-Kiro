@@ -7,6 +7,7 @@ For about 700 years England's Exchequer kept accounts on split tally sticks: not
 Stock & Foil resurrects the split stick for the millions of people paid daily in cash who still get no record. It is a paper card cut in two along a one-of-a-kind wavy line. The worker keeps the stock, the employer keeps the foil, both are punched together every day, and on payday any phone verifies the pair and works out the pay. The worker needs no phone and doesn't need to read. Free, offline, no server, no account.
 
 - **Live app:** https://vishnu2663.github.io/Stock-Foil-Kiro/
+- **Judges: test it in 1 minute with ready-made demo cards → [demo-cards/](demo-cards/)**
 - **Demo video:** _link added after recording_
 - Built with [Kiro](https://kiro.dev) for **Kiroween 2026**, category **Resurrection**.
 - **Project description:** [docs/DEVPOST.md](docs/DEVPOST.md) · **How Kiro was used:** [docs/HOW_KIRO_WAS_USED.md](docs/HOW_KIRO_WAS_USED.md)
@@ -28,6 +29,7 @@ Stock & Foil resurrects the split stick for the millions of people paid daily in
 - 6 UI languages (English, हिन्दी, বাংলা, தமிழ், Español, Kiswahili), pictures-and-voice mode
 - Optional AI (Chrome on-device or your own OpenAI-compatible key) with anonymised numbers only and an offline fallback
 - PWA: works offline after the first visit
+- [Demo cards](demo-cards/): ready-made photos and printable PDFs (genuine, extra hole, wrong half, half days), each checked by the real scanner in a test
 
 ## Run, test, build
 
@@ -38,6 +40,7 @@ Stock & Foil resurrects the split stick for the millions of people paid daily in
     npm run test:accuracy  # phone, cut-check and received-mark accuracy with 200 runs each
     npm run typecheck
     npm run build        # dist/
+    npm run demo:cards   # regenerate demo-cards/ (needs Chrome)
 
 ## Property-based tests
 
