@@ -71,7 +71,7 @@ All in `tests/`, written with fast-check. The photo simulator (`src/render/scene
 **The build brief came first.** Before any code, the full build brief was created using Kiro AI: product, users, the 1834 story, hard rules, exact layout and scanner numbers, and the submission requirements. It is in [docs/BUILD_BRIEF.md](docs/BUILD_BRIEF.md), and the steering file `product.md` includes it in every Kiro session, so every spec, hook and line of code was built from it.
 
 
-Everything Kiro used is in [`.kiro/`](.kiro/): 14 specs (`.kiro/specs/`), steering (`.kiro/steering/`), agent hooks (`.kiro/hooks/`) and custom agents (`.kiro/agents/`). The write-up is [docs/HOW_KIRO_WAS_USED.md](docs/HOW_KIRO_WAS_USED.md), the build log is [docs/KIRO_LOG.md](docs/KIRO_LOG.md) and the original brief is [docs/BUILD_BRIEF.md](docs/BUILD_BRIEF.md). Deployment: [DEPLOY.md](DEPLOY.md).
+Everything Kiro used is in [`.kiro/`](.kiro/): 16 specs (`.kiro/specs/`), 6 steering files (`.kiro/steering/`), 5 agent hooks (`.kiro/hooks/`) and 2 custom agents (`.kiro/agents/`). The test suite has 188 tests in 44 test files. The write-up is [docs/HOW_KIRO_WAS_USED.md](docs/HOW_KIRO_WAS_USED.md), the build log is [docs/KIRO_LOG.md](docs/KIRO_LOG.md) and the original brief is [docs/BUILD_BRIEF.md](docs/BUILD_BRIEF.md). Deployment: [DEPLOY.md](DEPLOY.md).
 
 
 ---

@@ -57,10 +57,10 @@ server and no account, and keeps everything on the device.
   only).
 
 ## How it was built
-Built in Kiro IDE from an empty folder: a written brief, steering files, 14 specs, five agent hooks, two custom agents
+Built in Kiro IDE from an empty folder: a written brief, 6 steering files, 16 specs, 5 agent hooks, 2 custom agents
 and parallel sub-agents. The scanner is tested against a photo simulator: the real printed sheet is rendered,
-photographed with tilt, blur, JPEG compression, glare, dim light and fingers, and scanned back. The suite has 161 tests
-in 40 files (fast-check property tests). Accuracy runs (`npm run test:accuracy`, 200 runs each):
+photographed with tilt, blur, JPEG compression, glare, dim light and fingers, and scanned back. The suite has 188 tests
+in 44 test files (fast-check property tests). Accuracy runs (`npm run test:accuracy`, 200 runs each):
 - phone frames with a punch read wrong and not flagged: 15 of 200 before the glare rule, 0 of 200 after;
 - "Check the cut": 200 of 200 real pairs fit, 0 of 62 forged foils fit;
 - received mark: 81 of 82 thumbs read as thumbs, 0 empty boxes read as marked, glare and fingers always "unclear".
